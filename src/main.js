@@ -98,7 +98,7 @@ const i18n = {
         playerTwo: "Hráč 2",
         duelByArea: "ovládl nadpoloviční většinu plochy!",
         duelByTime: "měl po vypršení času větší území!",
-        duelByLives: "soupeři došly životy!",
+        duelByLives: "ustál souboj — soupeři došly životy!",
         duelWins: "%s vyhrává",
         duelDraw: "Remíza!",
         reasonRivalTrail: "Soupeř ti přejel nedokončenou brázdu!",
@@ -151,7 +151,7 @@ const i18n = {
         playerTwo: "Player 2",
         duelByArea: "took more than half of the arena!",
         duelByTime: "held more ground when time ran out!",
-        duelByLives: "the rival ran out of lives!",
+        duelByLives: "outlasted the rival — they ran out of lives!",
         duelWins: "%s wins",
         duelDraw: "Draw!",
         reasonRivalTrail: "Your rival ran over your unfinished trail!",
@@ -406,7 +406,7 @@ const HELP_ENTRIES = [
         en: { name: 'Fireball', desc: 'Flies straight and very fast. On hitting captured ground it explodes and burns out a circle with a radius of 5 cells. If it hits you or your trail, you lose a life.' }
     },
     {
-        shape: 'mine', color: '#ff3b5c',
+        shape: 'mine', color: '#c6ff2e',
         cz: { name: 'Mina', desc: 'Objeví se uvnitř zabraného území. Jakmile se přiblížíš na 4 pole, spustí se odpočet 5 sekund — pak vybuchne, zničí kruh o poloměru 7 polí a v jeho dosahu zabije i tebe.' },
         en: { name: 'Mine', desc: 'Appears inside captured territory. Come within 4 cells and a 5 second countdown starts — then it explodes, destroying a circle with a radius of 7 cells and killing you if you are inside it.' }
     }
@@ -422,7 +422,10 @@ function enemyShapeSvg(entry) {
     } else if (entry.shape === 'diamond') {
         body = `<polygon points="22,5 39,22 22,39 5,22" fill="${entry.color}"${stroke}/>`;
     } else {
-        body = `<circle cx="22" cy="26" r="12" fill="#1a1a24" stroke="${entry.color}" stroke-width="3"/><rect x="20" y="6" width="4" height="9" fill="${entry.color}"/>`;
+        // osmiboké tělo se svítícím prstencem, jak mina vypadá ve hře
+        const octagon = '32.2,26.2 26.2,32.2 17.8,32.2 11.8,26.2 11.8,17.8 17.8,11.8 26.2,11.8 32.2,17.8';
+        body = `<circle cx="22" cy="22" r="18" fill="none" stroke="${entry.color}" stroke-width="2" opacity="0.55"/>`
+             + `<polygon points="${octagon}" fill="#15151f" stroke="${entry.color}" stroke-width="2.5"/>`;
     }
     return `<svg width="44" height="44" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">${body}</svg>`;
 }
@@ -1396,18 +1399,6 @@ function attachDrone(player) {
     player.group.add(model);
 }
 
-const loadedItemModels = {};
-const itemConfig = { 'mine': { file: 'Landmine.glb', scale: 0.75, offsetY: 0 } };
-
-loader.load(itemConfig.mine.file, (gltf) => {
-    const model = gltf.scene;
-    model.scale.set(itemConfig.mine.scale, itemConfig.mine.scale, itemConfig.mine.scale); 
-    model.traverse((child) => {
-        if (child.isMesh) { child.castShadow = true; child.receiveShadow = true; }
-    });
-    loadedItemModels['mine'] = model;
-});
-
 // Dron poletující v menu. Hráči vznikají až se zápasem, takže menu
 // potřebuje vlastní kus, který na nich nezávisí.
 const menuDrone = { group: new THREE.Group(), model: null, rotor1: null, rotor2: null, tint: null, scaleMultiplier: 1.35 };
@@ -1523,6 +1514,20 @@ function createFireworks(x, y, z) {
     particlesMesh.instanceMatrix.needsUpdate = true;
 }
 
+// --- MINA: geometrický tvar místo modelu ---
+// Těleso i obrys sdílí všechny miny, takže se dají vykreslit dohromady.
+// Pulzující prstenec má materiál vlastní, protože mění barvu podle odpočtu.
+const MINE_RADIUS = CELL_SIZE * 1.5;
+const mineBodyGeometry = new THREE.CylinderGeometry(MINE_RADIUS * 0.72, MINE_RADIUS, CELL_SIZE * 0.7, 8);
+const mineBodyMaterial = new THREE.MeshBasicMaterial({ color: 0x15151f });
+const mineEdgeGeometry = new THREE.EdgesGeometry(mineBodyGeometry);
+// Výstražná limetková. Nebije se s červeným ani modrým územím hráčů,
+// s azurovou arénou, fialovým eaterem ani oranžovým bomberem.
+const MINE_COLOR = 0xc6ff2e;
+const MINE_COLOR_URGENT = 0xf2ffd0;
+const mineEdgeMaterial = new THREE.LineBasicMaterial({ color: MINE_COLOR });
+const mineRingGeometry = new THREE.RingGeometry(MINE_RADIUS * 0.78, MINE_RADIUS * 1.15, 8);
+
 const activeItems = [];
 let itemSpawnTimer = 0;
 
@@ -1534,7 +1539,7 @@ class Item {
         
         this.mesh = new THREE.Group();
         this.mesh.position.set(x, 15, z); 
-        this.targetY = BLOCK_HEIGHT + (itemConfig.mine.offsetY || 0);
+        this.targetY = BLOCK_HEIGHT;
 
         const canvas = document.createElement('canvas');
         canvas.width = 128; canvas.height = 128;
@@ -1542,22 +1547,30 @@ class Item {
         const texture = new THREE.CanvasTexture(canvas);
         
         this.textSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true }));
-        this.textSprite.position.y = 0.5; 
-        this.textSprite.scale.set(0.6, 0.6, 1);
+        this.textSprite.position.y = 0.75;
+        this.textSprite.scale.set(0.95, 0.95, 1);
         this.textSprite.visible = false; 
         
         this.textCanvas = canvas; this.textCtx = ctx; this.textTexture = texture;
         this.mesh.add(this.textSprite);
         this.isTriggered = false; this.lastDisplayedSecond = -1;
 
-        if (loadedItemModels['mine']) {
-            const visual = loadedItemModels['mine'].clone();
-            visual.traverse((child) => { if (child.isMesh && child.material) child.material = child.material.clone(); });
-            this.mesh.add(visual);
-        } else {
-            const base = new THREE.Mesh(new THREE.CylinderGeometry(CELL_SIZE * 0.4, CELL_SIZE * 0.4, 0.1, 16), new THREE.MeshStandardMaterial({ color: 0x111111 }));
-            this.mesh.add(base);
-        }
+        const body = new THREE.Mesh(mineBodyGeometry, mineBodyMaterial);
+        body.position.y = CELL_SIZE * 0.35;
+        body.add(new THREE.LineSegments(mineEdgeGeometry, mineEdgeMaterial));
+        this.mesh.add(body);
+
+        // Prstenec leží na tělese a pulzuje tím rychleji, čím blíž je výbuch.
+        this.ringMaterial = new THREE.MeshBasicMaterial({
+            color: MINE_COLOR, transparent: true, opacity: 0.55,
+            blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
+        });
+        this.ring = new THREE.Mesh(mineRingGeometry, this.ringMaterial);
+        this.ring.rotation.x = -Math.PI / 2;
+        this.ring.position.y = CELL_SIZE * 0.72;
+        this.mesh.add(this.ring);
+
+        this.pulsePhase = 0;
         sceneGroup.add(this.mesh);
     }
 
@@ -1567,13 +1580,29 @@ class Item {
         
         soundManager.playSFX('beep');
         
-        this.textCtx.clearRect(0, 0, 128, 128);
-        this.textCtx.fillStyle = '#ffffff'; 
-        this.textCtx.font = 'bold 70px sans-serif';
-        this.textCtx.textAlign = 'center'; this.textCtx.textBaseline = 'middle';
-        this.textCtx.lineWidth = 4; this.textCtx.strokeStyle = '#000000';
-        this.textCtx.strokeText(seconds.toString(), 64, 64);
-        this.textCtx.fillText(seconds.toString(), 64, 64);
+        // Pod CRT filtrem a v nízkém rozlišení se tenké číslo ztrácí,
+        // proto dostane plnou tmavou podložku a silný světlý obrys.
+        const ctx = this.textCtx;
+        ctx.clearRect(0, 0, 128, 128);
+
+        ctx.fillStyle = 'rgba(8, 8, 16, 0.92)';
+        ctx.beginPath();
+        ctx.arc(64, 64, 52, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.lineWidth = 6;
+        ctx.strokeStyle = seconds <= 2 ? '#f2ffd0' : '#c6ff2e';
+        ctx.stroke();
+
+        ctx.font = 'bold 86px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.lineWidth = 8;
+        ctx.strokeStyle = '#000000';
+        ctx.strokeText(seconds.toString(), 64, 68);
+        ctx.fillStyle = seconds <= 2 ? '#ffffff' : '#dcff8a';
+        ctx.fillText(seconds.toString(), 64, 68);
+
         this.textTexture.needsUpdate = true;
     }
 
@@ -1630,6 +1659,16 @@ class Item {
         if (this.mesh.position.y <= this.targetY + 0.1 && grid[currentGridZ] && !isCapturedCell(grid[currentGridZ][currentGridX])) {
             this.explodeMine(); sceneGroup.remove(this.mesh); this.isDead = true; return;
         }
+
+        // Nespuštěná mina jen klidně dýchá, po spuštění pulz zrychluje
+        // a barva přechází do červené — odpočet jde poznat i koutkem oka.
+        const urgency = this.isTriggered ? Math.max(0, 1 - this.timer / 5) : 0;
+        this.pulsePhase += delta * (2.5 + urgency * 22);
+        const pulse = Math.sin(this.pulsePhase) * 0.5 + 0.5;
+
+        this.ring.scale.setScalar(1 + pulse * (0.12 + urgency * 0.4));
+        this.ringMaterial.opacity = 0.3 + pulse * (0.3 + urgency * 0.45);
+        this.ringMaterial.color.setHex(urgency > 0.6 ? MINE_COLOR_URGENT : MINE_COLOR);
 
         if (this.isTriggered) {
             this.timer -= delta;
