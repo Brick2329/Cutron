@@ -91,6 +91,15 @@ const i18n = {
         language: "Jazyk: Čeština",
         settings: "Nastavení",
         help: "Nápověda",
+        duel: "1v1 na jedné klávesnici",
+        playerOne: "Hráč 1",
+        playerTwo: "Hráč 2",
+        duelByArea: "ovládl nadpoloviční většinu plochy!",
+        duelByTime: "měl po vypršení času větší území!",
+        duelByLives: "soupeři došly životy!",
+        duelWins: "%s vyhrává",
+        duelDraw: "Remíza!",
+        reasonRivalTrail: "Soupeř ti přejel nedokončenou brázdu!",
         helpTitle: "Nepřátelé",
         selectLevel: "Výběr Levelu",
         back: "Zpět",
@@ -133,6 +142,15 @@ const i18n = {
         language: "Language: English",
         settings: "Settings",
         help: "Help",
+        duel: "1v1 on one keyboard",
+        playerOne: "Player 1",
+        playerTwo: "Player 2",
+        duelByArea: "took more than half of the arena!",
+        duelByTime: "held more ground when time ran out!",
+        duelByLives: "the rival ran out of lives!",
+        duelWins: "%s wins",
+        duelDraw: "Draw!",
+        reasonRivalTrail: "Your rival ran over your unfinished trail!",
         helpTitle: "Enemies",
         selectLevel: "Select Level",
         back: "Back",
@@ -175,6 +193,8 @@ const t = (key) => i18n[lang][key];
 
 // --- DATA, STAVY A NASTAVENÍ HRY ---
 let gameState = 'MENU'; // 'MENU', 'LEVEL_SELECT', 'PLAYING'
+let gameMode = 'campaign'; // 'campaign' | 'duel'
+let winAnimationPlayer = null;
 let progress = JSON.parse(localStorage.getItem('cutronProgress')) || { unlocked: 1, scores: {} };
 let settingsConfig = JSON.parse(localStorage.getItem('cutronSettings')) || { sfxVol: 0.5, bgmVol: 0.3 };
 
@@ -187,12 +207,10 @@ let maxActiveMines = 5;
 
 let isPaused = false;
 let isGameOver = false;
-let isRespawning = false; 
 let isWinAnimating = false; 
 let cameraShakeTime = 0;  
 let fireworkTimer = 0;    
 
-let lives = 3;
 let timeRemaining = 60;
 let filledPercentage = 0;
 let targetPercentage = 80;
@@ -328,11 +346,13 @@ const btnSettings = createMenuButton('settings', () => {
     menuUI.style.display = 'none';
     settingsUI.style.display = 'flex';
 });
+const btnDuel = createMenuButton('duel', () => startDuel());
 const btnHelp = createMenuButton('help', () => openHelp());
 
 menuContent.appendChild(btnContinue);
 menuContent.appendChild(btnNewGame);
 menuContent.appendChild(btnLanguage);
+menuContent.appendChild(btnDuel);
 menuContent.appendChild(btnHelp);
 menuContent.appendChild(btnSettings);
 
@@ -587,6 +607,69 @@ const percentHud = createHudItem('area', UI.cyan);
 const timeHud = createHudItem('timer', UI.amber);
 hudContainer.append(livesHud.wrap, percentHud.wrap, timeHud.wrap);
 
+// HUD souboje: oba hráči vedle sebe v barvách svých dronů, mezi nimi čas.
+const duelHud = document.createElement('div');
+Object.assign(duelHud.style, {
+    position: 'absolute', top: '4.5%', left: '4.5%',
+    display: 'none', alignItems: 'center', gap: '18px',
+    fontFamily: UI.font, fontSize: '20px', letterSpacing: '1px'
+});
+gameUI.appendChild(duelHud);
+uiWarp.register(duelHud);
+
+function createDuelPanel(colorHex) {
+    const wrap = document.createElement('div');
+    Object.assign(wrap.style, {
+        display: 'flex', alignItems: 'center', gap: '10px',
+        color: colorHex, border: `2px solid ${colorHex}`, padding: '6px 14px'
+    });
+
+    const heart = document.createElement('span');
+    heart.style.display = 'flex';
+    heart.innerHTML = pixelIcon('heart', colorHex, 3);
+
+    const lives = document.createElement('span');
+    const area = document.createElement('span');
+    area.style.marginLeft = '8px';
+
+    wrap.append(heart, lives, area);
+    return { wrap, lives, area };
+}
+
+const duelPanels = [
+    createDuelPanel('#ff3b5c'),
+    createDuelPanel('#00b4ff')
+];
+const duelTimer = document.createElement('div');
+Object.assign(duelTimer.style, { color: UI.amber, display: 'flex', alignItems: 'center', gap: '10px' });
+const duelTimerIcon = document.createElement('span');
+duelTimerIcon.style.display = 'flex';
+duelTimerIcon.innerHTML = pixelIcon('timer', UI.amber, 3);
+const duelTimerValue = document.createElement('span');
+duelTimer.append(duelTimerIcon, duelTimerValue);
+
+duelHud.append(duelPanels[0].wrap, duelTimer, duelPanels[1].wrap);
+
+let duelHudCache = ['', '', ''];
+
+function refreshDuelHud() {
+    players.forEach((p) => {
+        const panel = duelPanels[p.index];
+        if (!panel) return;
+        const text = `${p.lives}`;
+        if (duelHudCache[p.index] !== text + p.percentage) {
+            panel.lives.textContent = text;
+            panel.area.textContent = `${p.percentage}%`;
+            duelHudCache[p.index] = text + p.percentage;
+        }
+    });
+    const seconds = `${Math.ceil(Math.max(timeRemaining, 0))}s`;
+    if (duelHudCache[2] !== seconds) {
+        duelTimerValue.textContent = seconds;
+        duelHudCache[2] = seconds;
+    }
+}
+
 // --- HORNÍ TLAČÍTKA (Pauza a Ukončit) ---
 const topButtons = document.createElement('div');
 Object.assign(topButtons.style, {
@@ -647,12 +730,12 @@ Object.assign(controlsUI.style, {
 gameUI.appendChild(controlsUI);
 uiWarp.register(controlsUI);
 
-function createKeyElement(keyText) {
+function createKeyElement(keyText, color = UI.cyan) {
     const el = document.createElement('div');
     el.innerText = keyText;
     Object.assign(el.style, {
-        padding: '8px 12px', fontSize: '16px', fontWeight: 'bold', backgroundColor: 'rgba(255,255,255,0.1)',
-        fontFamily: UI.font, fontSize: '22px', border: `2px solid ${UI.cyan}`, color: UI.cyan, borderRadius: '0'
+        padding: '8px 12px', backgroundColor: 'transparent',
+        fontFamily: UI.font, fontSize: '22px', border: `2px solid ${color}`, color, borderRadius: '0'
     });
     return el;
 }
@@ -663,14 +746,33 @@ function createTextElement(key) {
     return el;
 }
 
-const moveGroup = document.createElement('div');
-moveGroup.style.display = 'flex'; moveGroup.style.alignItems = 'center'; moveGroup.style.gap = '15px';
-const keysGroup = document.createElement('div');
-keysGroup.style.display = 'flex'; keysGroup.style.gap = '5px';
-['W', 'A', 'S', 'D'].forEach(k => keysGroup.appendChild(createKeyElement(k)));
-moveGroup.appendChild(keysGroup);
-moveGroup.appendChild(createTextElement('move'));
-controlsUI.appendChild(moveGroup);
+function createControlGroup(keyLabels, color, labelKey) {
+    const group = document.createElement('div');
+    Object.assign(group.style, { display: 'flex', alignItems: 'center', gap: '15px' });
+
+    const keysGroup = document.createElement('div');
+    Object.assign(keysGroup.style, { display: 'flex', gap: '5px' });
+    keyLabels.forEach((k) => keysGroup.appendChild(createKeyElement(k, color)));
+
+    const label = createTextElement(labelKey);
+    label.style.color = color;
+    group.append(keysGroup, label);
+    return group;
+}
+
+// Kampaň ukazuje jen WASD, souboj obě sady v barvách obou dronů.
+const campaignControls = createControlGroup(['W', 'A', 'S', 'D'], UI.cyan, 'move');
+const duelControlsOne = createControlGroup(['W', 'A', 'S', 'D'], '#ff3b5c', 'playerOne');
+const duelControlsTwo = createControlGroup(['\u2191', '\u2190', '\u2193', '\u2192'], '#00b4ff', 'playerTwo');
+controlsUI.append(campaignControls, duelControlsOne, duelControlsTwo);
+
+function refreshControlsHint() {
+    const duel = gameMode === 'duel';
+    campaignControls.style.display = duel ? 'none' : 'flex';
+    duelControlsOne.style.display = duel ? 'flex' : 'none';
+    duelControlsTwo.style.display = duel ? 'flex' : 'none';
+}
+refreshControlsHint();
 
 
 // --- UPDATE TEXTŮ A MENU ---
@@ -721,9 +823,12 @@ function openLevelSelect() {
 let hudLives = null, hudSeconds = null, hudPercent = null, hudTarget = null;
 
 function updateHUD() {
-    if (lives !== hudLives) {
-        livesHud.value.textContent = lives;
-        hudLives = lives;
+    if (gameMode === 'duel') { refreshDuelHud(); return; }
+    const hero = players[0];
+    const heroLives = hero ? hero.lives : 0;
+    if (heroLives !== hudLives) {
+        livesHud.value.textContent = heroLives;
+        hudLives = heroLives;
     }
     const seconds = Math.ceil(timeRemaining);
     if (seconds !== hudSeconds) {
@@ -766,11 +871,9 @@ document.addEventListener('visibilitychange', () => { if (document.hidden && gam
 function quitToMenu() {
     isGameOver = false;
     isPaused = false;
-    isRespawning = false;
     isWinAnimating = false;
     gameState = 'MENU';
     cameraShakeTime = 0;
-    lastTrailDir = null;
 
     soundManager.stopEngine();
     soundManager.startMenuMusic();
@@ -780,14 +883,16 @@ function quitToMenu() {
     resultOverlay.style.display = 'none';
     gameUI.style.display = 'none';
     levelSelectUI.style.display = 'none';
-    sceneGroup.visible = false; 
+    duelHud.style.display = 'none';
+    sceneGroup.visible = false;
+    gameMode = 'campaign';
+    winAnimationPlayer = null; 
     
     clearSceneEntities(); // Vymaže částice, nepřátele atd.
     
     // NUCENÝ RESET hráče
-    player.position.set(0, 0, (ARENA_SIZE / 2) - (CELL_SIZE / 2));
-    player.rotation.set(0, 0, 0); 
-    player.visible = true;
+    clearPlayers();
+    if (menuDrone.group) menuDrone.group.visible = true;
     
     // NUCENÝ OKAMŽITÝ RESET KAMERY
     camera.position.set(0, 4, 15);
@@ -808,7 +913,7 @@ function showResult(isWin, reasonKey = "") {
     
     let scoreHTML = '';
     if (isWin) {
-        const score = Math.floor(filledPercentage * timeRemaining * lives * currentLevelId);
+        const score = Math.floor(filledPercentage * timeRemaining * (players[0] ? players[0].lives : 1) * currentLevelId);
         
         if (!progress.scores[currentLevelId] || score > progress.scores[currentLevelId]) {
             progress.scores[currentLevelId] = score;
@@ -868,6 +973,49 @@ function showResult(isWin, reasonKey = "") {
 }
 
 
+function showDuelResult(winner, reasonKey) {
+    isGameOver = true;
+    soundManager.stopEngine();
+    soundManager.stopGameMusic();
+    resultOverlay.style.display = 'flex';
+    controlsUI.style.display = 'none';
+
+    const color = winner.index === 0 ? '#ff3b5c' : '#00b4ff';
+    const name = t(winner.labelKey);
+    const standings = players
+        .map((p) => `${t(p.labelKey)} ${p.percentage}%`)
+        .join('  ·  ');
+
+    resultOverlay.innerHTML = `
+        <div style="font-family: ${UI.font}; color: ${color}; font-size: clamp(26px, 5vw, 54px); text-shadow: ${UI.glow(color)};">${t('duelWins').replace('%s', name)}</div>
+        <div style="font-family: ${UI.font}; font-size: 16px; color: ${UI.text}; margin-top: 20px;">${name} ${t(reasonKey)}</div>
+        <div style="font-family: ${UI.font}; font-size: 18px; color: ${UI.dim}; margin-top: 16px;">${standings}</div>`;
+
+    const btnContainer = document.createElement('div');
+    Object.assign(btnContainer.style, { marginTop: '40px', display: 'flex', gap: '20px' });
+
+    const againBtn = document.createElement('button');
+    againBtn.innerText = t('playAgain');
+    Object.assign(againBtn.style, {
+        fontFamily: UI.font, padding: '14px 22px', fontSize: '22px', cursor: 'pointer',
+        backgroundColor: 'transparent', color: UI.cyan, border: `2px solid ${UI.cyan}`, borderRadius: '0'
+    });
+    applyHoverFill(againBtn, UI.cyan);
+    againBtn.onclick = () => { soundManager.playSFX('click'); startDuel(); };
+
+    const menuBtn = document.createElement('button');
+    menuBtn.innerText = t('mainMenu');
+    Object.assign(menuBtn.style, {
+        fontFamily: UI.font, padding: '14px 22px', fontSize: '22px', cursor: 'pointer',
+        backgroundColor: 'transparent', color: UI.dim, border: `2px solid ${UI.dim}`, borderRadius: '0'
+    });
+    applyHoverFill(menuBtn, UI.dim);
+    menuBtn.onclick = () => { soundManager.playSFX('click'); quitToMenu(); };
+
+    btnContainer.append(againBtn, menuBtn);
+    resultOverlay.appendChild(btnContainer);
+}
+
 // --- 2. OSVĚTLENÍ ---
 const ambientLight = new THREE.AmbientLight(0xffffff, 1.05);
 scene.add(ambientLight);
@@ -895,8 +1043,8 @@ const ARENA_SIZE = GRID_SIZE * CELL_SIZE;
 const BLOCK_HEIGHT = 1; 
 const TOTAL_FILLABLE_CELLS = (GRID_SIZE - 2) * (GRID_SIZE - 2); 
 
-let grid = []; 
-let currentTrail = []; 
+let grid = [];
+const players = [];
 const animatingBlocks = []; 
 
 const sceneGroup = new THREE.Group();
@@ -920,8 +1068,32 @@ blocksMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 sceneGroup.add(blocksMesh);
 
 const dummy = new THREE.Object3D();
-const colorWall = new THREE.Color(0x00d9ff);
-const colorTrail = new THREE.Color(0xffa023);
+
+// Hodnoty v mřížce. Kromě prázdna a neutrální zdi arény nese políčko i to,
+// komu patří — proto má každý hráč vlastní hodnotu pro zabranou plochu i stopu.
+const CELL_EMPTY = 0;
+const CELL_WALL = 5;
+const capturedValue = (playerIndex) => (playerIndex === 0 ? 1 : 3);
+const trailValue = (playerIndex) => (playerIndex === 0 ? 2 : 4);
+const isCapturedCell = (value) => value === 1 || value === 3;
+const isTrailCell = (value) => value === 2 || value === 4;
+const capturedOwner = (value) => (value === 1 ? 0 : 1);
+const trailOwner = (value) => (value === 2 ? 0 : 1);
+
+// V kampani zůstává okraj arény azurový jako dřív; v souboji musí být
+// neutrální, aby nevypadal jako území jednoho z hráčů.
+const colorWallNeutral = new THREE.Color(0x4a5a7a);
+const colorWallCampaign = new THREE.Color(0x00d9ff);
+const arenaWallColor = () => (gameMode === 'duel' ? colorWallNeutral : colorWallCampaign);
+
+// Kampaň si drží původní ladění, souboj rozlišuje hráče červenou a modrou.
+const PLAYER_COLORS = {
+    campaign: [{ captured: 0x00d9ff, trail: 0xffa023, tint: null }],
+    duel: [
+        { captured: 0xff3b5c, trail: 0xff9ab0, tint: 0xff3b5c },
+        { captured: 0x00b4ff, trail: 0x9be4ff, tint: 0x00b4ff }
+    ]
+};
 
 // Buffery pro flood fill — alokované jednou, aby uzavření plochy nevytvářelo odpad pro GC
 const regionIds = new Int32Array(MAX_BLOCKS);
@@ -963,8 +1135,8 @@ function resetGrid() {
         if (!grid[z]) grid[z] = [];
         for (let x = 0; x < GRID_SIZE; x++) {
             if (x === 0 || x === GRID_SIZE - 1 || z === 0 || z === GRID_SIZE - 1) {
-                grid[z][x] = 1;
-                createBlock(x, z, colorWall, 1, false);
+                grid[z][x] = CELL_WALL;
+                createBlock(x, z, arenaWallColor(), CELL_WALL, false);
             } else {
                 grid[z][x] = 0;
                 const index = getIndex(x, z);
@@ -975,8 +1147,8 @@ function resetGrid() {
         }
     }
     blocksMesh.instanceMatrix.needsUpdate = true;
-    currentTrail = [];
     animatingBlocks.length = 0;
+    players.forEach((p) => { p.trail.length = 0; p.percentage = 0; });
     filledPercentage = 0;
 }
 
@@ -988,14 +1160,82 @@ for (let i = 0; i < MAX_BLOCKS; i++) {
 }
 resetGrid();
 
-// --- 4. HRÁČ ---
-let player = new THREE.Group(); 
-let rotor1 = null; 
-let rotor2 = null; 
-let droneModel = null; 
+// --- 4. HRÁČI ---
+// Stav hráče je v objektu, aby stejnou logikou prošla kampaň (jeden hráč)
+// i souboj dvou hráčů na jedné klávesnici.
+function createPlayer(index, config) {
+    const group = new THREE.Group();
+    group.position.set(config.startX, 0, config.startZ);
+    scene.add(group);
 
-player.position.set(0, 0, (ARENA_SIZE / 2) - (CELL_SIZE / 2));
-scene.add(player);
+    const player = {
+        index,
+        group,
+        model: null,
+        rotor1: null,
+        rotor2: null,
+        keys: config.keys,
+        labelKey: config.labelKey,
+        colorCaptured: new THREE.Color(config.colors.captured),
+        colorTrail: new THREE.Color(config.colors.trail),
+        tint: config.colors.tint,
+        startX: config.startX,
+        startZ: config.startZ,
+        velocityX: 0,
+        velocityZ: 0,
+        lastGridX: -1,
+        lastGridZ: -1,
+        lastTrailDir: null,
+        trail: [],
+        lives: 3,
+        isRespawning: false,
+        percentage: 0
+    };
+
+    players.push(player);
+    attachDrone(player);
+    return player;
+}
+
+function resetPlayerState(player) {
+    player.group.position.set(player.startX, 0, player.startZ);
+    player.group.rotation.set(0, 0, 0);
+    player.group.visible = true;
+    player.velocityX = 0;
+    player.velocityZ = 0;
+    player.lastGridX = -1;
+    player.lastGridZ = -1;
+    player.lastTrailDir = null;
+    player.trail.length = 0;
+    player.isRespawning = false;
+}
+
+function clearPlayers() {
+    players.forEach((p) => scene.remove(p.group));
+    players.length = 0;
+}
+
+const opponentsOf = (player) => players.filter((other) => other !== player);
+
+// Nepřítel musí ohrozit kohokoli ve hře — v souboji jsou hráči dva.
+function hitPlayersInRange(position, radius, reasonKey) {
+    if (gameState !== 'PLAYING' || isWinAnimating || isGameOver) return false;
+    let hitSomeone = false;
+    for (const target of players) {
+        if (target.isRespawning) continue;
+        const dx = target.group.position.x - position.x;
+        const dz = target.group.position.z - position.z;
+        if (Math.hypot(dx, dz) < radius) {
+            playerDied(target, t(reasonKey));
+            hitSomeone = true;
+        }
+    }
+    return hitSomeone;
+}
+
+// V kampani se čas i miny zastaví, dokud hráč čeká na oživení. V souboji
+// by zdržení jednoho hráče nemělo zmrazit hodiny tomu druhému.
+const matchClockRunning = () => gameMode === 'duel' || !players.some((p) => p.isRespawning);
 
 // Textura vzdušného víru: za každým ze dvou listů světlý ocas, který
 // proti směru otáčení slábne do ztracena. Kreslí se jednou, sdílí ji oba rotory.
@@ -1038,14 +1278,20 @@ function createRotorWakeTexture(mirrored) {
 }
 
 const loader = new GLTFLoader();
-loader.load('Sprite_drone_2.glb', (gltf) => {
-    droneModel = gltf.scene; 
-    droneModel.scale.set(0.15, 0.15, 0.15); 
-    
-    rotor1 = droneModel.getObjectByName('Rotor_one');
-    rotor2 = droneModel.getObjectByName('Rotor_two');
 
-    droneModel.traverse((child) => {
+// Model se načte jednou jako šablona; každý hráč z něj dostane vlastní kopii,
+// aby se v souboji daly drony odlišit barvou.
+let droneTemplate = null;
+const dronesWaitingForModel = [];
+
+loader.load('Sprite_drone_2.glb', (gltf) => {
+    const model = gltf.scene;
+    model.scale.set(0.15, 0.15, 0.15);
+
+    const rotorOne = model.getObjectByName('Rotor_one');
+    const rotorTwo = model.getObjectByName('Rotor_two');
+
+    model.traverse((child) => {
         if (child.isMesh) {
             child.castShadow = true;
             child.receiveShadow = true;
@@ -1054,7 +1300,7 @@ loader.load('Sprite_drone_2.glb', (gltf) => {
 
     // Vrtule si nechávají původní tmavou barvu z modelu, přisvícení se jich
     // ale týká stejně jako těla — jen nezáří, dokud na ně nedopadne světlo scény.
-    droneModel.traverse((child) => {
+    model.traverse((child) => {
         if (!child.isMesh || !child.material || !child.material.emissive) return;
         child.material = child.material.clone();
         child.material.emissive.setHex(0x3d4a63);
@@ -1064,12 +1310,12 @@ loader.load('Sprite_drone_2.glb', (gltf) => {
     // Vzdušný vír za listy. Textura má za každým ze dvou listů světlý ocas,
     // který proti směru otáčení slábne do ztracena. Protože je kroužek
     // potomkem rotoru, ocasy se točí s ním a vypadají jako vířící vzduch.
-    droneModel.updateWorldMatrix(true, true);
+    model.updateWorldMatrix(true, true);
     const boxSize = new THREE.Vector3();
-    [rotor1, rotor2].forEach((rotor, index) => {
+    [rotorOne, rotorTwo].forEach((rotor, index) => {
         if (!rotor) return;
         new THREE.Box3().setFromObject(rotor).getSize(boxSize);
-        const tipRadius = Math.max(boxSize.x, boxSize.z) * 0.5 / droneModel.scale.x;
+        const tipRadius = Math.max(boxSize.x, boxSize.z) * 0.5 / model.scale.x;
 
         const wake = new THREE.Mesh(
             new THREE.RingGeometry(tipRadius * 0.58, tipRadius * 1.06, 48),
@@ -1086,9 +1332,38 @@ loader.load('Sprite_drone_2.glb', (gltf) => {
         wake.userData.isRotorWake = true;
         rotor.add(wake);
     });
-    
-    player.add(droneModel); 
+
+    droneTemplate = model;
+    dronesWaitingForModel.forEach(attachDrone);
+    dronesWaitingForModel.length = 0;
 });
+
+function attachDrone(player) {
+    if (!droneTemplate) {
+        dronesWaitingForModel.push(player);
+        return;
+    }
+
+    const model = droneTemplate.clone();
+    model.scale.copy(droneTemplate.scale);
+
+    // Obarvení jen pro souboj. Klonované materiály, aby druhý dron zůstal nedotčený.
+    if (player.tint !== null && player.tint !== undefined) {
+        const tint = new THREE.Color(player.tint);
+        model.traverse((child) => {
+            if (!child.isMesh || !child.material || child.userData.isRotorWake) return;
+            if (!child.material.color) return;
+            child.material = child.material.clone();
+            child.material.color.lerp(tint, 0.6);
+            if (child.material.emissive) child.material.emissive.copy(tint).multiplyScalar(0.25);
+        });
+    }
+
+    player.model = model;
+    player.rotor1 = model.getObjectByName('Rotor_one');
+    player.rotor2 = model.getObjectByName('Rotor_two');
+    player.group.add(model);
+}
 
 const loadedItemModels = {};
 const itemConfig = { 'mine': { file: 'Landmine.glb', scale: 0.75, offsetY: 0 } };
@@ -1102,21 +1377,43 @@ loader.load(itemConfig.mine.file, (gltf) => {
     loadedItemModels['mine'] = model;
 });
 
+// Dron poletující v menu. Hráči vznikají až se zápasem, takže menu
+// potřebuje vlastní kus, který na nich nezávisí.
+const menuDrone = { group: new THREE.Group(), model: null, rotor1: null, rotor2: null, tint: null };
+scene.add(menuDrone.group);
+attachDrone(menuDrone);
+
+function spinRotors(target, delta) {
+    if (target.rotor1) target.rotor1.rotation.y += 15 * delta;
+    if (target.rotor2) target.rotor2.rotation.y -= 15 * delta;
+}
+
 // --- 5. OVLÁDÁNÍ A POHYB ---
-const keys = { w: false, a: false, s: false, d: false };
 const BASE_MAX_SPEED = 15;
-let currentMaxSpeed = BASE_MAX_SPEED; 
-let velocityX = 0;   
-let velocityZ = 0;   
-const accelerationRate = 8; 
+let currentMaxSpeed = BASE_MAX_SPEED;
+const accelerationRate = 8;
+
+const KEY_LAYOUTS = {
+    wasd: { up: 'w', down: 's', left: 'a', right: 'd' },
+    arrows: { up: 'arrowup', down: 'arrowdown', left: 'arrowleft', right: 'arrowright' }
+};
+
+const pressedKeys = new Set();
+const TRACKED_KEYS = new Set([
+    ...Object.values(KEY_LAYOUTS.wasd),
+    ...Object.values(KEY_LAYOUTS.arrows)
+]);
 
 window.addEventListener('keydown', (e) => {
     const key = e.key.toLowerCase();
-    if (keys.hasOwnProperty(key)) keys[key] = true;
+    if (!TRACKED_KEYS.has(key)) return;
+    // šipky by jinak rolovaly stránkou
+    if (key.startsWith('arrow')) e.preventDefault();
+    pressedKeys.add(key);
 });
 window.addEventListener('keyup', (e) => {
     const key = e.key.toLowerCase();
-    if (keys.hasOwnProperty(key)) keys[key] = false;
+    if (TRACKED_KEYS.has(key)) pressedKeys.delete(key);
 });
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -1262,8 +1559,8 @@ class Item {
                 if (dx * dx + dz * dz <= explosionRadius * explosionRadius) {
                     const x = currentGridX + dx; const z = currentGridZ + dz;
                     if (x > 0 && x < GRID_SIZE - 1 && z > 0 && z < GRID_SIZE - 1) {
-                        if (grid[z][x] === 1) {
-                            grid[z][x] = 0; 
+                        if (isCapturedCell(grid[z][x])) {
+                            grid[z][x] = CELL_EMPTY; 
                             const index = getIndex(x, z);
                             dummy.scale.set(0, 0, 0); dummy.updateMatrix();
                             blocksMesh.setMatrixAt(index, dummy.matrix);
@@ -1277,11 +1574,14 @@ class Item {
         if (ateSomething) { blocksMesh.instanceMatrix.needsUpdate = true; calculatePercentage(); }
         createExplosion(this.mesh.position.x, this.mesh.position.y, this.mesh.position.z, 80, [COLOR_RED, COLOR_ORANGE, COLOR_BLACK]);
         
-        if (gameState === 'PLAYING' && !isRespawning && !isWinAnimating && !isGameOver) {
-            const dx = player.position.x - this.mesh.position.x;
-            const dz = player.position.z - this.mesh.position.z;
-            if (Math.sqrt(dx*dx + dz*dz) < explosionRadius * CELL_SIZE) { 
-                playerDied(t('reasonMine'));
+        if (gameState === 'PLAYING' && !isWinAnimating && !isGameOver) {
+            for (const target of players) {
+                if (target.isRespawning) continue;
+                const dx = target.group.position.x - this.mesh.position.x;
+                const dz = target.group.position.z - this.mesh.position.z;
+                if (Math.sqrt(dx * dx + dz * dz) < explosionRadius * CELL_SIZE) {
+                    playerDied(target, t('reasonMine'));
+                }
             }
         }
     }
@@ -1296,7 +1596,7 @@ class Item {
         const currentGridX = Math.floor((this.mesh.position.x + (ARENA_SIZE / 2)) / CELL_SIZE);
         const currentGridZ = Math.floor((this.mesh.position.z + (ARENA_SIZE / 2)) / CELL_SIZE);
 
-        if (this.mesh.position.y <= this.targetY + 0.1 && grid[currentGridZ] && grid[currentGridZ][currentGridX] === 0) {
+        if (this.mesh.position.y <= this.targetY + 0.1 && grid[currentGridZ] && !isCapturedCell(grid[currentGridZ][currentGridX])) {
             this.explodeMine(); sceneGroup.remove(this.mesh); this.isDead = true; return;
         }
 
@@ -1308,11 +1608,16 @@ class Item {
             }
         }
 
-        if (gameState === 'PLAYING' && !isRespawning && !isWinAnimating) {
-            const dx = player.position.x - this.mesh.position.x;
-            const dz = player.position.z - this.mesh.position.z;
-            if (Math.sqrt(dx*dx + dz*dz) < CELL_SIZE * 4.0 && !this.isTriggered) {
-                this.isTriggered = true; this.textSprite.visible = true;
+        if (gameState === 'PLAYING' && !isWinAnimating && !this.isTriggered) {
+            for (const target of players) {
+                if (target.isRespawning) continue;
+                const dx = target.group.position.x - this.mesh.position.x;
+                const dz = target.group.position.z - this.mesh.position.z;
+                if (Math.sqrt(dx * dx + dz * dz) < CELL_SIZE * 4.0) {
+                    this.isTriggered = true;
+                    this.textSprite.visible = true;
+                    break;
+                }
             }
         }
     }
@@ -1344,11 +1649,11 @@ class Bouncer {
         let currentGridZ = Math.floor((this.mesh.position.z + (ARENA_SIZE / 2)) / CELL_SIZE);
         let cellX = (grid[currentGridZ] && grid[currentGridZ][checkGridX] !== undefined) ? grid[currentGridZ][checkGridX] : 1;
 
-        if (cellX === 1) {
+        if (isCapturedCell(cellX) || cellX === CELL_WALL) {
             nextX = this.vx > 0 ? checkGridX * CELL_SIZE - (ARENA_SIZE / 2) - this.colRadius - 0.001 : (checkGridX + 1) * CELL_SIZE - (ARENA_SIZE / 2) + this.colRadius + 0.001;
             this.vx *= -1; 
             bounced = true;
-        } else if (cellX === 2) playerDied(t('reasonEnemyTrail'));
+        } else if (isTrailCell(cellX)) playerDied(players[trailOwner(cellX)], t('reasonEnemyTrail'));
         this.mesh.position.x = nextX; 
 
         let nextZ = this.mesh.position.z + this.vz * delta;
@@ -1356,20 +1661,16 @@ class Bouncer {
         let checkGridZ = Math.floor((nextZ + Math.sign(this.vz) * this.colRadius + (ARENA_SIZE / 2)) / CELL_SIZE);
         let cellZ = (grid[checkGridZ] && grid[checkGridZ][currentGridX] !== undefined) ? grid[checkGridZ][currentGridX] : 1;
 
-        if (cellZ === 1) {
+        if (isCapturedCell(cellZ) || cellZ === CELL_WALL) {
             nextZ = this.vz > 0 ? checkGridZ * CELL_SIZE - (ARENA_SIZE / 2) - this.colRadius - 0.001 : (checkGridZ + 1) * CELL_SIZE - (ARENA_SIZE / 2) + this.colRadius + 0.001;
             this.vz *= -1; 
             bounced = true;
-        } else if (cellZ === 2) playerDied(t('reasonEnemyTrail'));
+        } else if (isTrailCell(cellZ)) playerDied(players[trailOwner(cellZ)], t('reasonEnemyTrail'));
         this.mesh.position.z = nextZ;
 
         if (bounced) soundManager.playSFX('bounce'); 
 
-        if (gameState === 'PLAYING' && !isRespawning && !isWinAnimating) {
-            const dx = player.position.x - this.mesh.position.x;
-            const dz = player.position.z - this.mesh.position.z;
-            if (Math.sqrt(dx*dx + dz*dz) < this.radius + (CELL_SIZE * 0.5)) playerDied(t('reasonEnemyHit'));
-        }
+        hitPlayersInRange(this.mesh.position, this.radius + (CELL_SIZE * 0.5), 'reasonEnemyHit');
     }
 }
 
@@ -1392,8 +1693,8 @@ class Eater {
             for (let dx = -eatRadius; dx <= eatRadius; dx++) {
                 const x = gridX + dx; const z = gridZ + dz;
                 if (x > 0 && x < GRID_SIZE - 1 && z > 0 && z < GRID_SIZE - 1) {
-                    if (grid[z][x] === 1) {
-                        grid[z][x] = 0; 
+                    if (isCapturedCell(grid[z][x])) {
+                        grid[z][x] = CELL_EMPTY; 
                         const index = getIndex(x, z);
                         dummy.scale.set(0, 0, 0); dummy.updateMatrix();
                         blocksMesh.setMatrixAt(index, dummy.matrix);
@@ -1412,12 +1713,12 @@ class Eater {
         let currentGridZ = Math.floor((this.mesh.position.z + (ARENA_SIZE / 2)) / CELL_SIZE);
         let cellX = (grid[currentGridZ] && grid[currentGridZ][checkGridX] !== undefined) ? grid[currentGridZ][checkGridX] : 1;
 
-        if (cellX === 1) {
+        if (isCapturedCell(cellX) || cellX === CELL_WALL) {
             this.eat(checkGridX, currentGridZ); 
             nextX = this.vx > 0 ? checkGridX * CELL_SIZE - (ARENA_SIZE / 2) - this.colRadius - 0.001 : (checkGridX + 1) * CELL_SIZE - (ARENA_SIZE / 2) + this.colRadius + 0.001;
             this.vx *= -1; 
             bounced = true;
-        } else if (cellX === 2) playerDied(t('reasonEaterTrail'));
+        } else if (isTrailCell(cellX)) playerDied(players[trailOwner(cellX)], t('reasonEaterTrail'));
         this.mesh.position.x = nextX;
 
         let nextZ = this.mesh.position.z + this.vz * delta;
@@ -1425,22 +1726,18 @@ class Eater {
         let checkGridZ = Math.floor((nextZ + Math.sign(this.vz) * this.colRadius + (ARENA_SIZE / 2)) / CELL_SIZE);
         let cellZ = (grid[checkGridZ] && grid[checkGridZ][currentGridX] !== undefined) ? grid[checkGridZ][currentGridX] : 1;
 
-        if (cellZ === 1) {
+        if (isCapturedCell(cellZ) || cellZ === CELL_WALL) {
             this.eat(currentGridX, checkGridZ); 
             nextZ = this.vz > 0 ? checkGridZ * CELL_SIZE - (ARENA_SIZE / 2) - this.colRadius - 0.001 : (checkGridZ + 1) * CELL_SIZE - (ARENA_SIZE / 2) + this.colRadius + 0.001;
             this.vz *= -1; 
             bounced = true;
-        } else if (cellZ === 2) playerDied(t('reasonEaterTrail'));
+        } else if (isTrailCell(cellZ)) playerDied(players[trailOwner(cellZ)], t('reasonEaterTrail'));
         this.mesh.position.z = nextZ;
         
         this.mesh.rotation.x += 4 * delta; this.mesh.rotation.y += 4 * delta;
         if (bounced) soundManager.playSFX('bounce');
 
-        if (gameState === 'PLAYING' && !isRespawning && !isWinAnimating) {
-            const dx = player.position.x - this.mesh.position.x;
-            const dz = player.position.z - this.mesh.position.z;
-            if (Math.sqrt(dx*dx + dz*dz) < this.radius + (CELL_SIZE * 0.5)) playerDied(t('reasonEaterHit'));
-        }
+        hitPlayersInRange(this.mesh.position, this.radius + (CELL_SIZE * 0.5), 'reasonEaterHit');
     }
 }
 
@@ -1463,8 +1760,8 @@ class Fireball {
                 if (dx * dx + dz * dz <= explosionRadius * explosionRadius) {
                     const x = gridX + dx; const z = gridZ + dz;
                     if (x > 0 && x < GRID_SIZE - 1 && z > 0 && z < GRID_SIZE - 1) {
-                        if (grid[z][x] === 1) {
-                            grid[z][x] = 0; 
+                        if (isCapturedCell(grid[z][x])) {
+                            grid[z][x] = CELL_EMPTY; 
                             const index = getIndex(x, z);
                             dummy.scale.set(0, 0, 0); dummy.updateMatrix();
                             blocksMesh.setMatrixAt(index, dummy.matrix);
@@ -1491,12 +1788,12 @@ class Fireball {
         
         if (checkGridX <= 0 || checkGridX >= GRID_SIZE -1 || checkGridZ <= 0 || checkGridZ >= GRID_SIZE -1) {
             hit = true; 
-        } else if (grid[currentGridZ] && grid[currentGridZ][checkGridX] === 1) {
+        } else if (grid[currentGridZ] && (isCapturedCell(grid[currentGridZ][checkGridX]) || grid[currentGridZ][checkGridX] === CELL_WALL)) {
             this.eat(checkGridX, currentGridZ); hit = true;
-        } else if (grid[checkGridZ] && grid[checkGridZ][currentGridX] === 1) {
+        } else if (grid[checkGridZ] && (isCapturedCell(grid[checkGridZ][currentGridX]) || grid[checkGridZ][currentGridX] === CELL_WALL)) {
             this.eat(currentGridX, checkGridZ); hit = true;
         } else if (grid[currentGridZ] && grid[currentGridZ][checkGridX] === 2 || grid[checkGridZ] && grid[checkGridZ][currentGridX] === 2) {
-             playerDied(t('reasonFireballTrail')); hit = true;
+             playerDied(players[trailOwner(grid[currentGridZ][checkGridX] === 2 || grid[currentGridZ][checkGridX] === 4 ? grid[currentGridZ][checkGridX] : grid[checkGridZ][currentGridX])], t('reasonFireballTrail')); hit = true;
         }
 
         if (hit) {
@@ -1505,13 +1802,9 @@ class Fireball {
         }
         this.mesh.position.x = nextX; this.mesh.position.z = nextZ;
 
-        if (gameState === 'PLAYING' && !isRespawning && !isWinAnimating) {
-            const dx = player.position.x - this.mesh.position.x;
-            const dz = player.position.z - this.mesh.position.z;
-            if (Math.sqrt(dx*dx + dz*dz) < this.radius + (CELL_SIZE * 0.5)) {
-                playerDied(t('reasonFireballHit'));
-                sceneGroup.remove(this.mesh); this.isDead = true;
-            }
+        if (hitPlayersInRange(this.mesh.position, this.radius + (CELL_SIZE * 0.5), 'reasonFireballHit')) {
+            sceneGroup.remove(this.mesh);
+            this.isDead = true;
         }
     }
 }
@@ -1546,11 +1839,11 @@ class Bomber {
         let currentGridZ = Math.floor((this.mesh.position.z + (ARENA_SIZE / 2)) / CELL_SIZE);
         let cellX = (grid[currentGridZ] && grid[currentGridZ][checkGridX] !== undefined) ? grid[currentGridZ][checkGridX] : 1;
 
-        if (cellX === 1) {
+        if (isCapturedCell(cellX) || cellX === CELL_WALL) {
             nextX = this.vx > 0 ? checkGridX * CELL_SIZE - (ARENA_SIZE / 2) - this.colRadius - 0.001 : (checkGridX + 1) * CELL_SIZE - (ARENA_SIZE / 2) + this.colRadius + 0.001;
             this.vx *= -1; 
             bounced = true;
-        } else if (cellX === 2) playerDied(t('reasonBomberTrail'));
+        } else if (isTrailCell(cellX)) playerDied(players[trailOwner(cellX)], t('reasonBomberTrail'));
         this.mesh.position.x = nextX;
 
         let nextZ = this.mesh.position.z + this.vz * delta;
@@ -1558,21 +1851,17 @@ class Bomber {
         let checkGridZ = Math.floor((nextZ + Math.sign(this.vz) * this.colRadius + (ARENA_SIZE / 2)) / CELL_SIZE);
         let cellZ = (grid[checkGridZ] && grid[checkGridZ][currentGridX] !== undefined) ? grid[checkGridZ][currentGridX] : 1;
 
-        if (cellZ === 1) {
+        if (isCapturedCell(cellZ) || cellZ === CELL_WALL) {
             nextZ = this.vz > 0 ? checkGridZ * CELL_SIZE - (ARENA_SIZE / 2) - this.colRadius - 0.001 : (checkGridZ + 1) * CELL_SIZE - (ARENA_SIZE / 2) + this.colRadius + 0.001;
             this.vz *= -1; 
             bounced = true;
-        } else if (cellZ === 2) playerDied(t('reasonBomberTrail'));
+        } else if (isTrailCell(cellZ)) playerDied(players[trailOwner(cellZ)], t('reasonBomberTrail'));
         this.mesh.position.z = nextZ;
         
         this.mesh.rotation.x += 4 * delta; this.mesh.rotation.y += 4 * delta;
         if (bounced) soundManager.playSFX('bounce');
 
-        if (gameState === 'PLAYING' && !isRespawning && !isWinAnimating) {
-            const dx = player.position.x - this.mesh.position.x;
-            const dz = player.position.z - this.mesh.position.z;
-            if (Math.sqrt(dx*dx + dz*dz) < this.radius + (CELL_SIZE * 0.5)) playerDied(t('reasonBomberHit'));
-        }
+        hitPlayersInRange(this.mesh.position, this.radius + (CELL_SIZE * 0.5), 'reasonBomberHit');
     }
 }
 
@@ -1596,103 +1885,239 @@ function clearSceneEntities() {
     droneDebris.length = 0;
 }
 
-function startLevel(levelId) {
-    currentLevelId = levelId;
-    currentLevelConfig = LEVELS_CONFIG.find(c => c.id === levelId) || LEVELS_CONFIG[0];
-    
-    lives = 3;
-    timeRemaining = currentLevelConfig.time;
-    targetPercentage = currentLevelConfig.target;
-    maxActiveMines = currentLevelConfig.maxMines;
-    filledPercentage = 0;
+const PLAYER_START_Z = (ARENA_SIZE / 2) - (CELL_SIZE / 2);
+
+function beginMatch() {
     isGameOver = false;
     isWinAnimating = false;
-    isRespawning = false;
     isPaused = false;
     itemSpawnTimer = 0;
-    
-    lastGridX = -1;
-    lastGridZ = -1;
-    velocityX = 0;
-    velocityZ = 0;
-    lastTrailDir = null;
-    
-    resetGrid();
+    winAnimationPlayer = null;
+    filledPercentage = 0;
+
+    clearPlayers();
     clearSceneEntities();
+    resetGrid();
 
-    for(let i=0; i < currentLevelConfig.bouncers; i++) {
-        enemies.push(new Bouncer((Math.random() - 0.5) * 15, (Math.random() - 0.5) * 15));
-    }
-    for(let i=0; i < currentLevelConfig.eaters; i++) {
-        enemies.push(new Eater((Math.random() - 0.5) * 15, (Math.random() - 0.5) * 15));
-    }
-    for(let i=0; i < currentLevelConfig.bombers; i++) {
-        enemies.push(new Bomber((Math.random() - 0.5) * 15, (Math.random() - 0.5) * 15));
-    }
-
-    player.position.set(0, 0, (ARENA_SIZE / 2) - (CELL_SIZE / 2));
-    player.rotation.set(0, 0, 0);
-    player.visible = true;
-
+    menuDrone.group.visible = false;
     sceneGroup.visible = true;
     menuUI.style.display = 'none';
     levelSelectUI.style.display = 'none';
     resultOverlay.style.display = 'none';
     gameUI.style.display = 'block';
     controlsUI.style.display = 'flex';
+    refreshControlsHint();
     setTimeout(() => uiWarp.refresh(), 0);
-    
+}
+
+function finishMatchStart() {
     updateAllTexts();
     soundManager.startEngine();
     soundManager.startGameMusic();
     gameState = 'PLAYING';
 }
 
+function startLevel(levelId) {
+    gameMode = 'campaign';
+    currentLevelId = levelId;
+    currentLevelConfig = LEVELS_CONFIG.find(c => c.id === levelId) || LEVELS_CONFIG[0];
+
+    timeRemaining = currentLevelConfig.time;
+    targetPercentage = currentLevelConfig.target;
+    maxActiveMines = currentLevelConfig.maxMines;
+
+    beginMatch();
+
+    createPlayer(0, {
+        keys: KEY_LAYOUTS.wasd,
+        colors: PLAYER_COLORS.campaign[0],
+        startX: 0,
+        startZ: PLAYER_START_Z,
+        labelKey: 'playerOne'
+    });
+
+    for (let i = 0; i < currentLevelConfig.bouncers; i++) {
+        enemies.push(new Bouncer((Math.random() - 0.5) * 15, (Math.random() - 0.5) * 15));
+    }
+    for (let i = 0; i < currentLevelConfig.eaters; i++) {
+        enemies.push(new Eater((Math.random() - 0.5) * 15, (Math.random() - 0.5) * 15));
+    }
+    for (let i = 0; i < currentLevelConfig.bombers; i++) {
+        enemies.push(new Bomber((Math.random() - 0.5) * 15, (Math.random() - 0.5) * 15));
+    }
+
+    duelHud.style.display = 'none';
+    hudContainer.style.display = 'flex';
+    finishMatchStart();
+}
+
+const DUEL_TIME = 180;
+const DUEL_MAX_MINES = 4;
+// Bouncery drží souboj pohromadě: oblast, ve které některý z nich je,
+// se nezabírá, takže jedno uzavření nesebere půlku mapy naráz.
+const DUEL_BOUNCERS = 3;
+
+function startDuel() {
+    gameMode = 'duel';
+    currentLevelId = 0;
+    currentLevelConfig = null;
+
+    timeRemaining = DUEL_TIME;
+    targetPercentage = DUEL_TARGET;
+    maxActiveMines = DUEL_MAX_MINES;
+
+    beginMatch();
+
+    // každý startuje u své strany arény
+    createPlayer(0, {
+        keys: KEY_LAYOUTS.wasd,
+        colors: PLAYER_COLORS.duel[0],
+        startX: 0,
+        startZ: PLAYER_START_Z,
+        labelKey: 'playerOne'
+    });
+    createPlayer(1, {
+        keys: KEY_LAYOUTS.arrows,
+        colors: PLAYER_COLORS.duel[1],
+        startX: 0,
+        startZ: -PLAYER_START_Z,
+        labelKey: 'playerTwo'
+    });
+
+    for (let i = 0; i < DUEL_BOUNCERS; i++) {
+        enemies.push(new Bouncer((Math.random() - 0.5) * 15, (Math.random() - 0.5) * 15));
+    }
+
+    hudContainer.style.display = 'none';
+    duelHud.style.display = 'flex';
+    refreshDuelHud();
+    finishMatchStart();
+}
 
 // --- 7. LOGIKA HRY, SMRT A FLOOD FILL ---
-function calculatePercentage() {
-    if (isWinAnimating || isGameOver || gameState !== 'PLAYING') return; 
+const DUEL_TARGET = 50;
 
-    let filledCount = 0;
+function recalculatePercentages() {
+    if (isWinAnimating || isGameOver || gameState !== 'PLAYING') return;
+
+    const counts = [0, 0];
     for (let z = 1; z < GRID_SIZE - 1; z++) {
         for (let x = 1; x < GRID_SIZE - 1; x++) {
-            if (grid[z][x] === 1) filledCount++;
+            const value = grid[z][x];
+            if (value === 1) counts[0]++;
+            else if (value === 3) counts[1]++;
         }
     }
-    
-    filledPercentage = Math.round((filledCount / TOTAL_FILLABLE_CELLS) * 100);
+
+    players.forEach((p) => {
+        p.percentage = Math.round((counts[p.index] / TOTAL_FILLABLE_CELLS) * 100);
+    });
+    filledPercentage = players[0] ? players[0].percentage : 0;
     updateHUD();
 
-    if (filledPercentage >= targetPercentage && !isGameOver && !isWinAnimating) {
+    if (isGameOver || isWinAnimating) return;
+
+    if (gameMode === 'duel') {
+        const leader = players.find((p) => p.percentage > DUEL_TARGET);
+        if (leader) endDuel(leader, 'duelByArea');
+    } else if (filledPercentage >= targetPercentage) {
         triggerWin();
     }
 }
+
+// zachováno kvůli volání z nepřátel a min
+const calculatePercentage = recalculatePercentages;
 
 function triggerWin() {
     isWinAnimating = true;
     soundManager.stopEngine();
     soundManager.playSFX('victory');
-    velocityX = 0; velocityZ = 0;
-    lastGridX = -1; lastGridZ = -1;
-    createFireworks(player.position.x, player.position.y, player.position.z);
+
+    const hero = players[0];
+    hero.velocityX = 0; hero.velocityZ = 0;
+    hero.lastGridX = -1; hero.lastGridZ = -1;
+    winAnimationPlayer = hero;
+    createFireworks(hero.group.position.x, hero.group.position.y, hero.group.position.z);
     setTimeout(() => { isWinAnimating = false; showResult(true); }, 2000);
 }
 
-function playerDied(reasonText, forceGameOver = false) {
-    if (isGameOver || isRespawning || isWinAnimating || gameState !== 'PLAYING') return; 
+function endDuel(winner, reasonKey) {
+    if (isGameOver || isWinAnimating) return;
+    isWinAnimating = true;
+    soundManager.stopEngine();
+    soundManager.playSFX('victory');
 
-    if (forceGameOver) lives = 0; else lives--;
+    players.forEach((p) => {
+        p.velocityX = 0; p.velocityZ = 0;
+        p.lastGridX = -1; p.lastGridZ = -1;
+    });
+    winAnimationPlayer = winner;
+    createFireworks(winner.group.position.x, winner.group.position.y, winner.group.position.z);
+    setTimeout(() => { isWinAnimating = false; showDuelResult(winner, reasonKey); }, 2000);
+}
+
+// Stopa se maže i při smrti: políčka, pod kterými bylo území soupeře,
+// se mu vrací — jinak by se dalo mazat cizí území vlastní smrtí.
+function removeTrail(player) {
+    for (const point of player.trail) {
+        const index = getIndex(point.x, point.z);
+        const animIdx = animatingBlocks.findIndex((a) => a.index === index);
+        if (animIdx !== -1) animatingBlocks.splice(animIdx, 1);
+
+        if (point.prev === CELL_EMPTY) {
+            grid[point.z][point.x] = CELL_EMPTY;
+            dummy.scale.set(0, 0, 0);
+            dummy.updateMatrix();
+            blocksMesh.setMatrixAt(index, dummy.matrix);
+        } else {
+            const owner = players[capturedOwner(point.prev)];
+            createBlock(point.x, point.z, owner ? owner.colorCaptured : arenaWallColor(), point.prev, false);
+        }
+    }
+    blocksMesh.instanceMatrix.needsUpdate = true;
+    player.trail.length = 0;
+    player.lastTrailDir = null;
+}
+
+function closeTrail(player) {
+    const finished = player.trail.slice();
+    const mine = capturedValue(player.index);
+    for (const point of finished) createBlock(point.x, point.z, player.colorCaptured, mine, false);
+    player.trail.length = 0;
+    player.lastTrailDir = null;
+    fillEnclosedAreas(player, finished);
+}
+
+// Soupeři mohla být rozdělaná stopa přepsána zabráním území.
+// O život nepřichází, jen mu stopa propadne.
+function invalidateOverwrittenTrail(other) {
+    const otherTrail = trailValue(other.index);
+    if (other.trail.length === 0) return;
+    if (other.trail.every((point) => grid[point.z][point.x] === otherTrail)) return;
+
+    other.trail = other.trail.filter((point) => grid[point.z][point.x] === otherTrail);
+    removeTrail(other);
+    other.lastGridX = -1;
+    other.lastGridZ = -1;
+}
+
+function playerDied(player, reasonText, forceGameOver = false) {
+    if (isGameOver || isWinAnimating || gameState !== 'PLAYING') return;
+    if (!player || player.isRespawning) return;
+
+    if (forceGameOver) player.lives = 0; else player.lives--;
 
     soundManager.playSFX('death');
     soundManager.stopEngine();
 
-    let momX = velocityX;
-    let momZ = velocityZ;
+    const momX = player.velocityX;
+    const momZ = player.velocityZ;
+    const origin = player.group.position;
 
-    createExplosion(player.position.x, player.position.y, player.position.z);
-    
+    createExplosion(origin.x, origin.y, origin.z);
+
     // --- ANIMACE ROZPADU DRONA (s hybností) ---
-    if (droneModel) {
+    if (player.model) {
         const explodePart = (part, isBody = false) => {
             if (!part) return;
             const clone = part.clone();
@@ -1708,69 +2133,67 @@ function playerDied(reasonText, forceGameOver = false) {
                 if (r1) r1.removeFromParent();
                 if (r2) r2.removeFromParent();
             }
-            
+
             const worldPos = new THREE.Vector3();
             part.getWorldPosition(worldPos);
             clone.position.copy(worldPos);
-            
+
             const worldScale = new THREE.Vector3();
             part.getWorldScale(worldScale);
             clone.scale.copy(worldScale);
-            
+
             const worldQuat = new THREE.Quaternion();
             part.getWorldQuaternion(worldQuat);
             clone.quaternion.copy(worldQuat);
-            
+
             const spread = 8;
-            
+
             scene.add(clone);
-            droneDebris.push({ 
-                mesh: clone, 
-                vx: (momX * 0.6) + (Math.random() - 0.5) * spread, 
-                vy: Math.random() * 15 + 10, 
-                vz: (momZ * 0.6) + (Math.random() - 0.5) * spread, 
-                rx: (Math.random() - 0.5) * 15, 
-                ry: (Math.random() - 0.5) * 15, 
-                rz: (Math.random() - 0.5) * 15, 
-                life: 2.0 
+            droneDebris.push({
+                mesh: clone,
+                vx: (momX * 0.6) + (Math.random() - 0.5) * spread,
+                vy: Math.random() * 15 + 10,
+                vz: (momZ * 0.6) + (Math.random() - 0.5) * spread,
+                rx: (Math.random() - 0.5) * 15,
+                ry: (Math.random() - 0.5) * 15,
+                rz: (Math.random() - 0.5) * 15,
+                life: 2.0
             });
         };
-        
-        explodePart(rotor1);
-        explodePart(rotor2);
-        explodePart(droneModel, true);
+
+        explodePart(player.rotor1);
+        explodePart(player.rotor2);
+        explodePart(player.model, true);
     }
 
-    cameraShakeTime = 0.5; 
+    cameraShakeTime = 0.5;
 
-    for (let point of currentTrail) {
-        const index = getIndex(point.x, point.z);
-        const animIdx = animatingBlocks.findIndex(a => a.index === index);
-        if (animIdx !== -1) animatingBlocks.splice(animIdx, 1);
-        dummy.scale.set(0,0,0); dummy.updateMatrix();
-        blocksMesh.setMatrixAt(index, dummy.matrix);
-        grid[point.z][point.x] = 0;
-    }
-    blocksMesh.instanceMatrix.needsUpdate = true;
-    currentTrail = []; updateHUD();
+    removeTrail(player);
+    recalculatePercentages();
 
-    isRespawning = true; player.visible = false;
-    currentMaxSpeed = BASE_MAX_SPEED; velocityX = 0; velocityZ = 0;
-    lastGridX = -1; lastGridZ = -1;
-    lastTrailDir = null;
+    player.isRespawning = true;
+    player.group.visible = false;
+    player.velocityX = 0;
+    player.velocityZ = 0;
+    player.lastGridX = -1;
+    player.lastGridZ = -1;
+    currentMaxSpeed = BASE_MAX_SPEED;
 
     setTimeout(() => {
-        if (lives <= 0) {
-            showResult(false, forceGameOver ? reasonText : reasonText + t('livesOut'));
-        } else {
-            player.position.set(0, 0, (ARENA_SIZE / 2) - (CELL_SIZE / 2));
-            lastGridX = -1;
-            lastGridZ = -1;
-            velocityX = 0;
-            velocityZ = 0;
-            player.visible = true; isRespawning = false;
-            soundManager.startEngine();
+        if (gameState !== 'PLAYING' && !isGameOver) return;
+
+        if (player.lives <= 0) {
+            if (gameMode === 'duel') {
+                const winner = opponentsOf(player)[0];
+                if (winner) showDuelResult(winner, 'duelByLives');
+            } else {
+                showResult(false, forceGameOver ? reasonText : reasonText + t('livesOut'));
+            }
+            return;
         }
+
+        resetPlayerState(player);
+        soundManager.startEngine();
     }, 1000);
 }
 
@@ -1789,16 +2212,21 @@ function getCellsBetween(x0, z0, x1, z1) {
     return cells;
 }
 
-function fillEnclosedAreas(finishedTrail) {
+function fillEnclosedAreas(player, finishedTrail) {
+    const mine = capturedValue(player.index);
+
     regionIds.fill(-1);
     trailMask.fill(0);
-    for (const p of finishedTrail) trailMask[getIndex(p.x, p.z)] = 1;
+    for (const point of finishedTrail) trailMask[getIndex(point.x, point.z)] = 1;
+
+    // Hranicí je jen vlastní území a zeď arény; území soupeře se dá obklíčit.
+    const isBarrier = (value) => value === mine || value === CELL_WALL;
 
     let regionCount = 0;
     for (let z = 0; z < GRID_SIZE; z++) {
         for (let x = 0; x < GRID_SIZE; x++) {
             const start = getIndex(x, z);
-            if (grid[z][x] !== 0 || regionIds[start] !== -1) continue;
+            if (isBarrier(grid[z][x]) || regionIds[start] !== -1) continue;
 
             const id = regionCount++;
             regionTouchesTrail[id] = 0;
@@ -1825,19 +2253,41 @@ function fillEnclosedAreas(finishedTrail) {
                     }
                 }
 
-                if (cz + 1 < GRID_SIZE && grid[cz + 1][cx] === 0 && regionIds[cell + GRID_SIZE] === -1) { regionIds[cell + GRID_SIZE] = id; floodQueue[tail++] = cell + GRID_SIZE; }
-                if (cz - 1 >= 0 && grid[cz - 1][cx] === 0 && regionIds[cell - GRID_SIZE] === -1) { regionIds[cell - GRID_SIZE] = id; floodQueue[tail++] = cell - GRID_SIZE; }
-                if (cx + 1 < GRID_SIZE && grid[cz][cx + 1] === 0 && regionIds[cell + 1] === -1) { regionIds[cell + 1] = id; floodQueue[tail++] = cell + 1; }
-                if (cx - 1 >= 0 && grid[cz][cx - 1] === 0 && regionIds[cell - 1] === -1) { regionIds[cell - 1] = id; floodQueue[tail++] = cell - 1; }
+                if (cz + 1 < GRID_SIZE && !isBarrier(grid[cz + 1][cx]) && regionIds[cell + GRID_SIZE] === -1) { regionIds[cell + GRID_SIZE] = id; floodQueue[tail++] = cell + GRID_SIZE; }
+                if (cz - 1 >= 0 && !isBarrier(grid[cz - 1][cx]) && regionIds[cell - GRID_SIZE] === -1) { regionIds[cell - GRID_SIZE] = id; floodQueue[tail++] = cell - GRID_SIZE; }
+                if (cx + 1 < GRID_SIZE && !isBarrier(grid[cz][cx + 1]) && regionIds[cell + 1] === -1) { regionIds[cell + 1] = id; floodQueue[tail++] = cell + 1; }
+                if (cx - 1 >= 0 && !isBarrier(grid[cz][cx - 1]) && regionIds[cell - 1] === -1) { regionIds[cell - 1] = id; floodQueue[tail++] = cell - 1; }
             }
         }
     }
 
-    for (const enemy of enemies) {
-        const ex = Math.floor((enemy.mesh.position.x + (ARENA_SIZE / 2)) / CELL_SIZE);
-        const ez = Math.floor((enemy.mesh.position.z + (ARENA_SIZE / 2)) / CELL_SIZE);
-        if (ex < 0 || ex >= GRID_SIZE || ez < 0 || ez >= GRID_SIZE) continue;
-        const id = regionIds[getIndex(ex, ez)];
+    // Oblast, ve které stojí nepřítel nebo soupeřův dron, se nezabírá.
+    // Bez toho by jediné uzavření sebralo celou volnou plochu najednou.
+    const blockers = [];
+    for (const enemy of enemies) blockers.push(enemy.mesh.position);
+    for (const other of opponentsOf(player)) blockers.push(other.group.position);
+
+    for (const position of blockers) {
+        const bx = Math.floor((position.x + (ARENA_SIZE / 2)) / CELL_SIZE);
+        const bz = Math.floor((position.z + (ARENA_SIZE / 2)) / CELL_SIZE);
+        if (bx < 0 || bx >= GRID_SIZE || bz < 0 || bz >= GRID_SIZE) continue;
+
+        let id = regionIds[getIndex(bx, bz)];
+
+        // Hráč stojící na zdi arény nebo na zabrané ploše nepatří do žádné oblasti.
+        // Bez tohoto dohledání by neblokoval nic a jedno uzavření by sebralo celou mapu.
+        for (let radius = 1; id === -1 && radius <= 2; radius++) {
+            for (let dz = -radius; dz <= radius && id === -1; dz++) {
+                for (let dx = -radius; dx <= radius; dx++) {
+                    const nx = bx + dx;
+                    const nz = bz + dz;
+                    if (nx < 0 || nx >= GRID_SIZE || nz < 0 || nz >= GRID_SIZE) continue;
+                    const neighbour = regionIds[getIndex(nx, nz)];
+                    if (neighbour !== -1) { id = neighbour; break; }
+                }
+            }
+        }
+
         if (id !== -1) regionHasEnemy[id] = 1;
     }
 
@@ -1846,13 +2296,102 @@ function fillEnclosedAreas(finishedTrail) {
         for (let x = 1; x < GRID_SIZE - 1; x++) {
             const id = regionIds[getIndex(x, z)];
             if (id !== -1 && regionTouchesTrail[id] && !regionHasEnemy[id]) {
-                createBlock(x, z, colorWall, 1, true);
+                createBlock(x, z, player.colorCaptured, mine, true);
                 capturedCells++;
             }
         }
     }
+
     if (capturedCells > 0) soundManager.playSFX('capture');
-    calculatePercentage();
+    opponentsOf(player).forEach(invalidateOverwrittenTrail);
+    recalculatePercentages();
+}
+
+// Pohyb a kreslení stopy. Pravidla jsou stejná pro kampaň i souboj,
+// liší se jen tím, koho hráč potká: v souboji i soupeřovu stopu a území.
+function updatePlayerMovement(player, delta) {
+    if (player.isRespawning) return;
+
+    const mineCaptured = capturedValue(player.index);
+    const mineTrail = trailValue(player.index);
+
+    let targetVelX = 0;
+    let targetVelZ = 0;
+
+    // zamezení nechtěné otočky o 180° při kreslení stopy
+    let blockUp = false, blockDown = false, blockLeft = false, blockRight = false;
+    if (player.trail.length > 0) {
+        if (player.lastTrailDir === 'z') blockUp = true;
+        if (player.lastTrailDir === '-z') blockDown = true;
+        if (player.lastTrailDir === 'x') blockLeft = true;
+        if (player.lastTrailDir === '-x') blockRight = true;
+    } else {
+        player.lastTrailDir = null;
+    }
+
+    const keys = player.keys;
+    if (pressedKeys.has(keys.up) && !blockUp) targetVelZ = -currentMaxSpeed;
+    else if (pressedKeys.has(keys.down) && !blockDown) targetVelZ = currentMaxSpeed;
+    else if (pressedKeys.has(keys.left) && !blockLeft) targetVelX = -currentMaxSpeed;
+    else if (pressedKeys.has(keys.right) && !blockRight) targetVelX = currentMaxSpeed;
+
+    player.velocityX = THREE.MathUtils.lerp(player.velocityX, targetVelX, accelerationRate * delta);
+    player.velocityZ = THREE.MathUtils.lerp(player.velocityZ, targetVelZ, accelerationRate * delta);
+
+    const position = player.group.position;
+    position.x += player.velocityX * delta;
+    position.z += player.velocityZ * delta;
+
+    const limit = (ARENA_SIZE / 2) - (CELL_SIZE / 2);
+    position.x = THREE.MathUtils.clamp(position.x, -limit, limit);
+    position.z = THREE.MathUtils.clamp(position.z, -limit, limit);
+
+    const currentGridX = Math.floor((position.x + (ARENA_SIZE / 2)) / CELL_SIZE);
+    const currentGridZ = Math.floor((position.z + (ARENA_SIZE / 2)) / CELL_SIZE);
+
+    if ((currentGridX !== player.lastGridX || currentGridZ !== player.lastGridZ) && player.lastGridX !== -1) {
+        const pathCells = getCellsBetween(player.lastGridX, player.lastGridZ, currentGridX, currentGridZ);
+
+        for (const cell of pathCells) {
+            if (cell.x === player.lastGridX && cell.z === player.lastGridZ) continue;
+            let value = grid[cell.z][cell.x];
+
+            // nájezd do rozdělané stopy soupeře zabíjí jeho, ne tebe
+            if (isTrailCell(value) && trailOwner(value) !== player.index) {
+                playerDied(players[trailOwner(value)], t('reasonRivalTrail'));
+                value = grid[cell.z][cell.x];
+            }
+
+            if (value === mineTrail) {
+                playerDied(player, t('reasonCross'));
+                return;
+            }
+
+            if (value === mineCaptured || value === CELL_WALL) {
+                if (player.trail.length > 0) closeTrail(player);
+                continue;
+            }
+
+            const previous = isCapturedCell(value) ? value : CELL_EMPTY;
+            const last = player.trail.length > 0
+                ? player.trail[player.trail.length - 1]
+                : { x: player.lastGridX, z: player.lastGridZ };
+
+            const dx = cell.x - last.x;
+            const dz = cell.z - last.z;
+            if (dx > 0) player.lastTrailDir = 'x';
+            else if (dx < 0) player.lastTrailDir = '-x';
+            else if (dz > 0) player.lastTrailDir = 'z';
+            else if (dz < 0) player.lastTrailDir = '-z';
+
+            createBlock(cell.x, cell.z, player.colorTrail, mineTrail, true);
+            player.trail.push({ x: cell.x, z: cell.z, prev: previous });
+            soundManager.playSFX('trail');
+        }
+    }
+
+    player.lastGridX = currentGridX;
+    player.lastGridZ = currentGridZ;
 }
 
 // --- 8. HERNÍ SMYČKA ---
@@ -1865,6 +2404,45 @@ let lastGridX = -1; let lastGridZ = -1;
 const menuCameraPos = new THREE.Vector3(0, 4, 15);
 const menuLookAt = new THREE.Vector3(0, 4, 0);
 const cameraTargetPos = new THREE.Vector3();
+const duelLookTarget = new THREE.Vector3();
+
+// V kampani kamera sleduje jediný dron. V souboji musí udržet v záběru oba,
+// takže se vzdálenost dopočítává ze zorného úhlu a rozestupu hráčů.
+function updateCamera() {
+    if (gameMode === 'duel' && players.length === 2) {
+        const first = players[0].group.position;
+        const second = players[1].group.position;
+        const midX = (first.x + second.x) / 2;
+        const midZ = (first.z + second.z) / 2;
+
+        const padding = 5;
+        const spreadX = Math.abs(first.x - second.x) + padding;
+        const spreadZ = Math.abs(first.z - second.z) + padding;
+
+        const verticalFov = THREE.MathUtils.degToRad(camera.fov);
+        const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * camera.aspect);
+        const distance = THREE.MathUtils.clamp(
+            Math.max((spreadZ / 2) / Math.tan(verticalFov / 2), (spreadX / 2) / Math.tan(horizontalFov / 2)),
+            16, 38
+        );
+
+        cameraTargetPos.set(midX * 0.8, distance * 0.78, midZ * 0.8 + distance * 0.62);
+        camera.position.lerp(cameraTargetPos, 0.05);
+        duelLookTarget.set(midX, 0, midZ);
+        cameraLookAtTarget.lerp(duelLookTarget, 0.08);
+        camera.lookAt(cameraLookAtTarget);
+        return;
+    }
+
+    const hero = players[0];
+    if (!hero) return;
+    const trackingFactor = 0.9;
+    const heroPos = hero.group.position;
+    cameraTargetPos.set(heroPos.x * trackingFactor, 10, heroPos.z * trackingFactor + 12);
+    camera.position.lerp(cameraTargetPos, 0.05);
+    cameraLookAtTarget.lerp(heroPos, 0.08);
+    camera.lookAt(cameraLookAtTarget);
+}
 
 updateAllTexts(); 
 
@@ -1885,21 +2463,20 @@ function animate() {
     
     // --- STAV MENU / VÝBĚR LEVELU ---
     if (gameState === 'MENU' || gameState === 'LEVEL_SELECT') {
-        if (droneModel) {
+        if (menuDrone.model) {
             const tMenu = elapsed * 0.5;
-            droneModel.position.set(
-                Math.sin(tMenu * 0.8) * 8,       
-                4 + Math.sin(tMenu * 1.1) * 2,   
-                -12 + Math.cos(tMenu * 0.9) * 4  
+            menuDrone.model.position.set(
+                Math.sin(tMenu * 0.8) * 8,
+                4 + Math.sin(tMenu * 1.1) * 2,
+                -12 + Math.cos(tMenu * 0.9) * 4
             );
-            droneModel.rotation.set(
-                Math.sin(tMenu * 1.5) * 0.2,     
-                -0.5 + Math.sin(tMenu) * 0.3,    
-                Math.cos(tMenu * 1.2) * 0.2      
+            menuDrone.model.rotation.set(
+                Math.sin(tMenu * 1.5) * 0.2,
+                -0.5 + Math.sin(tMenu) * 0.3,
+                Math.cos(tMenu * 1.2) * 0.2
             );
         }
-        if (rotor1) rotor1.rotation.y += 15 * delta;
-        if (rotor2) rotor2.rotation.y -= 15 * delta;
+        spinRotors(menuDrone, delta);
 
         camera.position.lerp(menuCameraPos, 0.05);
         cameraLookAtTarget.lerp(menuLookAt, 0.08);
@@ -1914,15 +2491,20 @@ function animate() {
         return;
     }
     
-    if (!isWinAnimating && !isRespawning) {
+    if (!isWinAnimating && matchClockRunning()) {
         timeRemaining -= delta;
         if (timeRemaining <= 0) {
             timeRemaining = 0; updateHUD();
-            playerDied(t('reasonTime'), true); 
+            if (gameMode === 'duel') {
+                const leader = players.reduce((best, p) => (p.percentage > best.percentage ? p : best));
+                endDuel(leader, 'duelByTime');
+            } else {
+                playerDied(players[0], t('reasonTime'), true);
+            }
         } else updateHUD();
     }
 
-    if (!isWinAnimating && !isRespawning) {
+    if (!isWinAnimating && matchClockRunning()) {
         if (activeItems.length < maxActiveMines) {
             itemSpawnTimer += delta;
             if (itemSpawnTimer > 4 + Math.random() * 2) { 
@@ -1935,12 +2517,12 @@ function animate() {
                 for (let tries = 0; tries < MAX_TRIES; tries++) {
                     const x = margin + Math.floor(Math.random() * span);
                     const z = margin + Math.floor(Math.random() * span);
-                    if (grid[z][x] !== 1) continue;
+                    if (!isCapturedCell(grid[z][x])) continue;
 
                     let isSurrounded = true;
                     for (let dz = -safeRadius; dz <= safeRadius && isSurrounded; dz++) {
                         for (let dx = -safeRadius; dx <= safeRadius; dx++) {
-                            if (grid[z + dz] && grid[z + dz][x + dx] !== 1) { isSurrounded = false; break; }
+                            if (grid[z + dz] && !isCapturedCell(grid[z + dz][x + dx])) { isSurrounded = false; break; }
                         }
                     }
                     if (!isSurrounded) continue;
@@ -1999,95 +2581,39 @@ function animate() {
         }
     }
     
-    if (rotor1) rotor1.rotation.y += 15 * delta;
-    if (rotor2) rotor2.rotation.y -= 15 * delta;
-    
-    if (isWinAnimating) {
-        player.position.y += 15 * delta; player.rotation.y += 8 * delta;  
+    players.forEach((p) => spinRotors(p, delta));
+
+    if (isWinAnimating && winAnimationPlayer) {
+        const winnerPos = winAnimationPlayer.group.position;
+        winnerPos.y += 15 * delta;
+        winAnimationPlayer.group.rotation.y += 8 * delta;
         fireworkTimer -= delta;
         if (fireworkTimer <= 0) {
-            createFireworks(player.position.x + (Math.random() - 0.5) * 15, player.position.y + (Math.random() - 0.5) * 5, player.position.z + (Math.random() - 0.5) * 15);
-            fireworkTimer = 0.2; 
+            createFireworks(winnerPos.x + (Math.random() - 0.5) * 15, winnerPos.y + (Math.random() - 0.5) * 5, winnerPos.z + (Math.random() - 0.5) * 15);
+            fireworkTimer = 0.2;
         }
     }
-    
-    if (droneModel && !isWinAnimating) {
-        droneModel.position.x = 0;
-        droneModel.position.z = 0;
-        const hoverHeight = 0.2; const hoverSpeed = 2;    
-        droneModel.position.y = BLOCK_HEIGHT + 0.5 + Math.sin(elapsed * hoverSpeed) * hoverHeight;
-        droneModel.rotation.set(0, 0, Math.sin(elapsed * hoverSpeed * 0.5) * 0.05);
+
+    if (!isWinAnimating) {
+        const hoverHeight = 0.2;
+        const hoverSpeed = 2;
+        players.forEach((p, i) => {
+            if (!p.model) return;
+            p.model.position.x = 0;
+            p.model.position.z = 0;
+            // posun fáze, aby oba drony nehoupaly úplně stejně
+            p.model.position.y = BLOCK_HEIGHT + 0.5 + Math.sin(elapsed * hoverSpeed + i * 1.7) * hoverHeight;
+            p.model.rotation.set(0, 0, Math.sin(elapsed * hoverSpeed * 0.5 + i) * 0.05);
+        });
     }
 
-    if (!isRespawning && !isWinAnimating) {
-        let targetVelX = 0; let targetVelZ = 0;
-        
-        // Zamezení proti nechtěné otočce o 180° při kreslení trailu
-        let blockW = false, blockS = false, blockA = false, blockD = false;
-        if (currentTrail.length > 0) {
-            if (lastTrailDir === 'z') blockW = true;
-            if (lastTrailDir === '-z') blockS = true;
-            if (lastTrailDir === 'x') blockA = true;
-            if (lastTrailDir === '-x') blockD = true;
-        } else {
-            lastTrailDir = null;
+    if (!isWinAnimating) {
+        let fastest = 0;
+        for (const p of players) {
+            updatePlayerMovement(p, delta);
+            fastest = Math.max(fastest, Math.hypot(p.velocityX, p.velocityZ));
         }
-
-        if (keys.w && !blockW) targetVelZ = -currentMaxSpeed;
-        else if (keys.s && !blockS) targetVelZ = currentMaxSpeed;
-        else if (keys.a && !blockA) targetVelX = -currentMaxSpeed;
-        else if (keys.d && !blockD) targetVelX = currentMaxSpeed;
-
-        velocityX = THREE.MathUtils.lerp(velocityX, targetVelX, accelerationRate * delta);
-        velocityZ = THREE.MathUtils.lerp(velocityZ, targetVelZ, accelerationRate * delta);
-
-        const speed = Math.hypot(velocityX, velocityZ);
-        soundManager.setEngineSpeed(Math.min(speed / BASE_MAX_SPEED, 1));
-
-        player.position.x += velocityX * delta; player.position.z += velocityZ * delta;
-
-        const limit = (ARENA_SIZE / 2) - (CELL_SIZE / 2);
-        if (player.position.x > limit) player.position.x = limit;
-        if (player.position.x < -limit) player.position.x = -limit;
-        if (player.position.z > limit) player.position.z = limit;
-        if (player.position.z < -limit) player.position.z = -limit;
-
-        const currentGridX = Math.floor((player.position.x + (ARENA_SIZE / 2)) / CELL_SIZE);
-        const currentGridZ = Math.floor((player.position.z + (ARENA_SIZE / 2)) / CELL_SIZE);
-
-        if ((currentGridX !== lastGridX || currentGridZ !== lastGridZ) && lastGridX !== -1) {
-            const pathCells = getCellsBetween(lastGridX, lastGridZ, currentGridX, currentGridZ);
-            
-            for (let cell of pathCells) {
-                if (cell.x === lastGridX && cell.z === lastGridZ) continue;
-                const cellType = grid[cell.z][cell.x];
-
-                if (cellType === 0) {
-                    let prevX = currentTrail.length > 0 ? currentTrail[currentTrail.length - 1].x : lastGridX;
-                    let prevZ = currentTrail.length > 0 ? currentTrail[currentTrail.length - 1].z : lastGridZ;
-                    let dx = cell.x - prevX;
-                    let dz = cell.z - prevZ;
-                    
-                    if (dx > 0) lastTrailDir = 'x';
-                    else if (dx < 0) lastTrailDir = '-x';
-                    else if (dz > 0) lastTrailDir = 'z';
-                    else if (dz < 0) lastTrailDir = '-z';
-
-                    createBlock(cell.x, cell.z, colorTrail, 2, true);
-                    currentTrail.push({ x: cell.x, z: cell.z });
-                    soundManager.playSFX('trail');
-                }
-                else if (cellType === 1 && currentTrail.length > 0) {
-                    const finishedTrail = [...currentTrail];
-                    for (let point of currentTrail) createBlock(point.x, point.z, colorWall, 1, false);
-                    currentTrail = []; fillEnclosedAreas(finishedTrail);
-                }
-                else if (cellType === 2 && currentTrail.length > 0) {
-                    playerDied(t('reasonCross'));
-                }
-            }
-        }
-        lastGridX = currentGridX; lastGridZ = currentGridZ;
+        soundManager.setEngineSpeed(Math.min(fastest / BASE_MAX_SPEED, 1));
     }
 
     for (let enemy of enemies) enemy.update(delta);
@@ -2107,15 +2633,7 @@ function animate() {
     }
     if (needsMatrixUpdate) blocksMesh.instanceMatrix.needsUpdate = true;
 
-    const trackingFactor = 0.9; 
-    const targetX = player.position.x * trackingFactor;
-    const targetZ = (player.position.z * trackingFactor) + 12;
-    const targetY = 10; 
-    
-    cameraTargetPos.set(targetX, targetY, targetZ);
-    camera.position.lerp(cameraTargetPos, 0.05);
-    cameraLookAtTarget.lerp(player.position, 0.08);
-    camera.lookAt(cameraLookAtTarget);
+    updateCamera();
 
     if (cameraShakeTime > 0) {
         cameraShakeTime -= delta;

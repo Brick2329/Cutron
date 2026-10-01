@@ -88,7 +88,10 @@ export function createUiWarp(curvature) {
     let enabled = false;
 
     function layout(el) {
-        el.style.transform = '';
+        // Prvek může mít vlastní posun (třeba vystředění translateX(-50%)),
+        // takže se ohnutí přidává k němu, ne místo něj.
+        const base = el.dataset.warpBaseTransform || '';
+        el.style.transform = base;
         if (!enabled) return;
 
         const rect = el.getBoundingClientRect();
@@ -104,11 +107,15 @@ export function createUiWarp(curvature) {
         const dx = -cx * bendX * bendX * (width / 2);
         const dy = -cy * bendY * bendY * (height / 2);
 
-        el.style.transform = `translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px)`;
+        el.style.transform = `${base} translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px)`.trim();
     }
 
     return {
-        register(el) { items.push(el); layout(el); },
+        register(el) {
+            el.dataset.warpBaseTransform = el.style.transform || '';
+            items.push(el);
+            layout(el);
+        },
         refresh() { items.forEach(layout); },
         setEnabled(on) { enabled = on; items.forEach(layout); }
     };
