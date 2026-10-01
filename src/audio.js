@@ -152,7 +152,12 @@ class AudioEngine {
     // --- HUDBA ---
     startMenuMusic() {
         this.stopGameMusic();
+        if (!this.menuMusic.paused) return;
         this.menuMusic.play().catch(() => {});
+    }
+
+    isMenuMusicPlaying() {
+        return !this.menuMusic.paused;
     }
 
     stopMenuMusic() {

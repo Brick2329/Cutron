@@ -86,12 +86,14 @@ const LEVELS_CONFIG = [
 const i18n = {
     cz: {
         title: "CUTRON",
-        continue: "Pokračovat",
-        newGame: "Nová hra",
+        campaign: "Kampaň",
+        resetProgress: "Smazat postup",
+        resetConfirm: "Opravdu smazat?",
+        resetDone: "Postup smazán",
         language: "Jazyk: Čeština",
         settings: "Nastavení",
         help: "Nápověda",
-        duel: "1v1 na jedné klávesnici",
+        duel: "1v1",
         playerOne: "Hráč 1",
         playerTwo: "Hráč 2",
         duelByArea: "ovládl nadpoloviční většinu plochy!",
@@ -137,12 +139,14 @@ const i18n = {
     },
     en: {
         title: "CUTRON",
-        continue: "Continue",
-        newGame: "New Game",
+        campaign: "Campaign",
+        resetProgress: "Erase progress",
+        resetConfirm: "Really erase?",
+        resetDone: "Progress erased",
         language: "Language: English",
         settings: "Settings",
         help: "Help",
-        duel: "1v1 on one keyboard",
+        duel: "1v1",
         playerOne: "Player 1",
         playerTwo: "Player 2",
         duelByArea: "took more than half of the arena!",
@@ -188,7 +192,7 @@ const i18n = {
     }
 };
 
-let lang = 'cz';
+let lang = 'en';
 const t = (key) => i18n[lang][key];
 
 // --- DATA, STAVY A NASTAVENÍ HRY ---
@@ -326,18 +330,12 @@ function createMenuButton(textKey, onClick) {
     btn.onclick = (e) => {
         soundManager.unlock();
         soundManager.playSFX('click');
-        soundManager.startMenuMusic();
         onClick(e);
     };
     return btn;
 }
 
-const btnContinue = createMenuButton('continue', () => openLevelSelect());
-const btnNewGame = createMenuButton('newGame', () => {
-    progress = { unlocked: 1, scores: {} };
-    saveProgress();
-    openLevelSelect();
-});
+const btnCampaign = createMenuButton('campaign', () => openLevelSelect());
 const btnLanguage = createMenuButton('language', () => {
     lang = lang === 'cz' ? 'en' : 'cz';
     updateAllTexts();
@@ -349,10 +347,9 @@ const btnSettings = createMenuButton('settings', () => {
 const btnDuel = createMenuButton('duel', () => startDuel());
 const btnHelp = createMenuButton('help', () => openHelp());
 
-menuContent.appendChild(btnContinue);
-menuContent.appendChild(btnNewGame);
-menuContent.appendChild(btnLanguage);
+menuContent.appendChild(btnCampaign);
 menuContent.appendChild(btnDuel);
+menuContent.appendChild(btnLanguage);
 menuContent.appendChild(btnHelp);
 menuContent.appendChild(btnSettings);
 
@@ -552,6 +549,37 @@ settingsUI.appendChild(createSlider('sfxVol', settingsConfig.sfxVol, (val) => {
     soundManager.updateVolumes();
 }));
 
+let resetArmed = false;
+let resetTimer = null;
+
+const btnReset = createMenuButton('resetProgress', () => {
+    if (!resetArmed) {
+        resetArmed = true;
+        btnReset.dataset.textKey = 'resetConfirm';
+        btnReset.innerText = t('resetConfirm');
+        clearTimeout(resetTimer);
+        resetTimer = setTimeout(() => {
+            resetArmed = false;
+            btnReset.dataset.textKey = 'resetProgress';
+            btnReset.innerText = t('resetProgress');
+        }, 4000);
+        return;
+    }
+
+    clearTimeout(resetTimer);
+    resetArmed = false;
+    progress = { unlocked: 1, scores: {} };
+    saveProgress();
+    btnReset.dataset.textKey = 'resetDone';
+    btnReset.innerText = t('resetDone');
+    setTimeout(() => {
+        btnReset.dataset.textKey = 'resetProgress';
+        btnReset.innerText = t('resetProgress');
+    }, 1800);
+});
+btnReset.style.marginTop = '30px';
+settingsUI.appendChild(btnReset);
+
 const btnCrt = createMenuButton('crtOn', () => {
     const enabled = !crt.isEnabled();
     crt.setEnabled(enabled);
@@ -562,7 +590,7 @@ const btnCrt = createMenuButton('crtOn', () => {
     btnCrt.innerText = t(btnCrt.dataset.textKey);
 });
 btnCrt.dataset.textKey = settingsConfig.crt === false ? 'crtOff' : 'crtOn';
-btnCrt.style.marginTop = '30px';
+btnCrt.style.marginTop = '10px';
 settingsUI.appendChild(btnCrt);
 
 const btnBackSettings = createMenuButton('back', () => {
@@ -782,7 +810,6 @@ function updateAllTexts() {
     });
     if(gameState === 'PLAYING' || isPaused || isGameOver) updateHUD();
     
-    btnContinue.style.display = progress.unlocked > 1 || Object.keys(progress.scores).length > 0 ? 'block' : 'none';
 }
 
 function openLevelSelect() {
@@ -1320,8 +1347,11 @@ loader.load('Sprite_drone_2.glb', (gltf) => {
         const wake = new THREE.Mesh(
             new THREE.RingGeometry(tipRadius * 0.58, tipRadius * 1.06, 48),
             new THREE.MeshBasicMaterial({
-                // rotory se točí proti sobě, takže druhý ocas musí být zrcadlený
-                map: createRotorWakeTexture(index === 1),
+                // Rotory se točí proti sobě, takže každý potřebuje jinak otočený ocas.
+                // Řetězec převrácení (plátno má osu Y dolů, prstenec je sklopený
+                // do roviny XZ) vycházel obráceně a vír předbíhal list místo
+                // aby se táhl za ním.
+                map: createRotorWakeTexture(index === 0),
                 transparent: true,
                 blending: THREE.AdditiveBlending,
                 depthWrite: false,
@@ -1346,6 +1376,7 @@ function attachDrone(player) {
 
     const model = droneTemplate.clone();
     model.scale.copy(droneTemplate.scale);
+    if (player.scaleMultiplier) model.scale.multiplyScalar(player.scaleMultiplier);
 
     // Obarvení jen pro souboj. Klonované materiály, aby druhý dron zůstal nedotčený.
     if (player.tint !== null && player.tint !== undefined) {
@@ -1379,7 +1410,7 @@ loader.load(itemConfig.mine.file, (gltf) => {
 
 // Dron poletující v menu. Hráči vznikají až se zápasem, takže menu
 // potřebuje vlastní kus, který na nich nezávisí.
-const menuDrone = { group: new THREE.Group(), model: null, rotor1: null, rotor2: null, tint: null };
+const menuDrone = { group: new THREE.Group(), model: null, rotor1: null, rotor2: null, tint: null, scaleMultiplier: 1.35 };
 scene.add(menuDrone.group);
 attachDrone(menuDrone);
 
@@ -2448,6 +2479,24 @@ updateAllTexts();
 
 uiWarp.setEnabled(settingsConfig.crt !== false);
 
+// Hudba menu má hrát od začátku. Prohlížeč ale zvuk bez interakce blokuje,
+// takže se o to pokusíme hned a při prvním doteku nebo klávese to zopakujeme.
+soundManager.unlock();
+soundManager.startMenuMusic();
+
+// Posluchače držíme, dokud hudba opravdu nehraje — jediný pokus nestačí,
+// protože prohlížeč smí přehrání odmítnout i při prvním doteku.
+const MUSIC_START_EVENTS = ['pointerdown', 'mousedown', 'click', 'keydown', 'touchstart'];
+
+function startMusicOnInteraction() {
+    soundManager.unlock();
+    if (gameState === 'MENU' || gameState === 'LEVEL_SELECT') soundManager.startMenuMusic();
+    if (soundManager.isMenuMusicPlaying()) {
+        MUSIC_START_EVENTS.forEach((event) => window.removeEventListener(event, startMusicOnInteraction));
+    }
+}
+MUSIC_START_EVENTS.forEach((event) => window.addEventListener(event, startMusicOnInteraction));
+
 function animate() {
     requestAnimationFrame(animate);
 
@@ -2465,10 +2514,14 @@ function animate() {
     if (gameState === 'MENU' || gameState === 'LEVEL_SELECT') {
         if (menuDrone.model) {
             const tMenu = elapsed * 0.5;
+            // Kamera stojí na z = 15, takže kladnější z znamená blíž k divákovi.
+            // Hloubka je navázaná na výchylku do stran: po krajích se dron vyklání
+            // dopředu, uprostřed couvne za menu, aby nepřekrýval tlačítka.
+            const swing = Math.sin(tMenu * 0.8);
             menuDrone.model.position.set(
-                Math.sin(tMenu * 0.8) * 8,
-                4 + Math.sin(tMenu * 1.1) * 2,
-                -12 + Math.cos(tMenu * 0.9) * 4
+                swing * 7,
+                3.4 + Math.sin(tMenu * 1.1) * 1.5,
+                -4 + Math.abs(swing) * 7
             );
             menuDrone.model.rotation.set(
                 Math.sin(tMenu * 1.5) * 0.2,
