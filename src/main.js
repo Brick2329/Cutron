@@ -1,12 +1,74 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { createAudioEngine } from './audio.js';
+import { createCrtPipeline, createUiWarp } from './crt.js';
 import './style.css';
 
 // --- NAČTENÍ EXTERNÍHO FONTU PRO MENU ---
 const fontLink = document.createElement('link');
-fontLink.href = 'https://fonts.googleapis.com/css2?family=Orbitron:ital,wght@1,900&display=swap';
+fontLink.href = 'https://fonts.googleapis.com/css2?family=VT323&display=swap';
 fontLink.rel = 'stylesheet';
 document.head.appendChild(fontLink);
+
+// --- PALETA UI (drží se stejných barev jako scéna) ---
+const UI = {
+    font: "'VT323', monospace",
+    // ASCII logo potřebuje font s blokovými znaky, ty VT323 nemá
+    artFont: "ui-monospace, Menlo, 'DejaVu Sans Mono', monospace",
+    cyan: '#00d9ff',
+    amber: '#ffa023',
+    danger: '#ff3b5c',
+    success: '#00ff9c',
+    text: '#d8f6ff',
+    dim: '#5c7a91',
+    overlay: 'rgba(4, 4, 15, 0.92)',
+    panelEdge: '#1e3350',
+    glow: (color) => `0 0 6px ${color}, 0 0 18px ${color}`
+};
+
+// --- PIXELOVÉ IKONY (náhrada za emoji, která do stylu hry nezapadala) ---
+const ICON_PIXELS = {
+    heart: ['.XX.XX.', 'XXXXXXX', 'XXXXXXX', 'XXXXXXX', '.XXXXX.', '..XXX..', '...X...'],
+    area:  ['XXXXXXX', 'X.....X', 'X.....X', 'XXXX..X', 'XXXX..X', 'XXXX..X', 'XXXXXXX'],
+    timer: ['XXXXXXX', '.X...X.', '..X.X..', '...X...', '..X.X..', '.X...X.', 'XXXXXXX'],
+    lock:  ['.XXXXX.', '.X...X.', '.X...X.', 'XXXXXXX', 'XXX.XXX', 'XXX.XXX', 'XXXXXXX'],
+    star:  ['...X...', '..XXX..', 'XXXXXXX', '.XXXXX.', '..XXX..', '.XX.XX.', 'X.....X']
+};
+
+// Sousední pixely v řádku se slučují do jednoho obdélníku, ať je SVG krátké.
+function pixelIcon(name, color = 'currentColor', pixelSize = 3) {
+    const rows = ICON_PIXELS[name];
+    const width = rows[0].length;
+    let rects = '';
+
+    rows.forEach((row, y) => {
+        let x = 0;
+        while (x < width) {
+            if (row[x] !== 'X') { x++; continue; }
+            let run = 1;
+            while (row[x + run] === 'X') run++;
+            rects += `<rect x="${x}" y="${y}" width="${run}" height="1"/>`;
+            x += run;
+        }
+    });
+
+    return `<svg width="${width * pixelSize}" height="${rows.length * pixelSize}" viewBox="0 0 ${width} ${rows.length}" fill="${color}" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg">${rects}</svg>`;
+}
+
+// Arkádová odezva tlačítek: při najetí se barvy prohodí
+function applyHoverFill(el, color, withSound = true) {
+    el.onmouseover = () => {
+        el.style.backgroundColor = color;
+        el.style.color = '#04040f';
+        el.style.boxShadow = UI.glow(color);
+        if (withSound) soundManager.playSFX('hover');
+    };
+    el.onmouseout = () => {
+        el.style.backgroundColor = 'transparent';
+        el.style.color = color;
+        el.style.boxShadow = 'none';
+    };
+}
 
 // --- KONFIGURACE LEVELŮ ---
 const LEVELS_CONFIG = [
@@ -28,6 +90,8 @@ const i18n = {
         newGame: "Nová hra",
         language: "Jazyk: Čeština",
         settings: "Nastavení",
+        help: "Nápověda",
+        helpTitle: "Nepřátelé",
         selectLevel: "Výběr Levelu",
         back: "Zpět",
         level: "Level",
@@ -46,6 +110,8 @@ const i18n = {
         move: "Pohyb",
         reset: "Reset",
         musicVol: "Hlasitost hudby",
+        crtOn: "CRT efekt: Zapnutý",
+        crtOff: "CRT efekt: Vypnutý",
         sfxVol: "Hlasitost zvuků",
         reasonTime: "Vypršel čas!",
         reasonCross: "Překřížil jsi vlastní stopu!",
@@ -66,6 +132,8 @@ const i18n = {
         newGame: "New Game",
         language: "Language: English",
         settings: "Settings",
+        help: "Help",
+        helpTitle: "Enemies",
         selectLevel: "Select Level",
         back: "Back",
         level: "Level",
@@ -84,6 +152,8 @@ const i18n = {
         move: "Move",
         reset: "Reset",
         musicVol: "Music Volume",
+        crtOn: "CRT effect: On",
+        crtOff: "CRT effect: Off",
         sfxVol: "SFX Volume",
         reasonTime: "Time's up!",
         reasonCross: "You crossed your own trail!",
@@ -127,63 +197,15 @@ let timeRemaining = 60;
 let filledPercentage = 0;
 let targetPercentage = 80;
 
-// --- AUDIO MANAGER ---
-class SoundManager {
-    constructor() {
-        this.bgm = new Audio('sounds/soundtrack.mp3');
-        this.bgm.loop = true;
-        
-        this.engine = new Audio('sounds/engine.mp3');
-        this.engine.loop = true;
-
-        this.sfx = {};
-        
-        // Zde si můžeš definovat libovolný mix .wav a .mp3 souborů
-        const sfxFiles = {
-            'hover': 'hover.wav',
-            'click': 'click.wav',
-            'trail': 'trail.mp3',      
-            'beep': 'beep.wav',
-            'explosion': 'explosion.wav',
-            'bounce': 'bounce.mp3'     
-        };
-
-        Object.keys(sfxFiles).forEach(name => {
-            this.sfx[name] = new Audio(`sounds/${sfxFiles[name]}`);
-            this.sfx[name].preload = 'auto';
-        });
-
-        this.bgmStarted = false;
-        this.updateVolumes();
-    }
-
-    updateVolumes() {
-        this.bgm.volume = settingsConfig.bgmVol;
-        this.engine.volume = settingsConfig.sfxVol * 0.3; 
-    }
-
-    playSFX(name) {
-        if (settingsConfig.sfxVol <= 0 || !this.sfx[name]) return;
-        const clone = this.sfx[name].cloneNode();
-        clone.volume = name === 'trail' ? settingsConfig.sfxVol * 0.4 : settingsConfig.sfxVol;
-        clone.play().catch(() => {});
-    }
-
-    startGlobalBGM() {
-        if (!this.bgmStarted) {
-            this.bgm.play().catch(() => {});
-            this.bgmStarted = true;
-        }
-    }
-}
-const soundManager = new SoundManager();
+// --- AUDIO ---
+const soundManager = createAudioEngine(settingsConfig);
 
 // --- 1. ZÁKLADNÍ NASTAVENÍ SCÉNY ---
 const scene = new THREE.Scene();
 
-const bgColor = 0x1e293b; 
+const bgColor = 0x0d0d22; 
 scene.background = new THREE.Color(bgColor); 
-scene.fog = new THREE.Fog(bgColor, 15, 60); 
+scene.fog = new THREE.Fog(bgColor, 18, 70);
 
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
 const renderer = new THREE.WebGLRenderer({ antialias: false });
@@ -192,6 +214,14 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true; 
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
+
+const CRT_CURVATURE = 0.32;
+
+const crt = createCrtPipeline(renderer, {
+    enabled: settingsConfig.crt !== false,
+    pixelScale: settingsConfig.pixelScale || 2,
+    curvature: CRT_CURVATURE
+});
 
 const particlesGeo = new THREE.BufferGeometry();
 const particlesCount = 8000; 
@@ -206,7 +236,7 @@ particlesGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
 
 const particlesMat = new THREE.PointsMaterial({
     size: 0.15,
-    color: 0x3498db, 
+    color: 0x00d9ff,
     transparent: true,
     opacity: 0.6
 });
@@ -223,6 +253,8 @@ Object.assign(uiContainer.style, {
 });
 document.body.appendChild(uiContainer);
 
+const uiWarp = createUiWarp(CRT_CURVATURE);
+
 // MENU UI
 const menuUI = document.createElement('div');
 Object.assign(menuUI.style, {
@@ -237,20 +269,28 @@ Object.assign(menuContent.style, {
     marginTop: '10vh', display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: '10'
 });
 menuUI.appendChild(menuContent);
+uiWarp.register(menuContent);
 
-const titleEl = document.createElement('div');
+// Logo ve stylu scénových intro — ANSI art s přelivem přes písmena
+const CUTRON_LOGO = [
+    ' ██████╗██╗   ██╗████████╗██████╗  ██████╗ ███╗   ██╗',
+    '██╔════╝██║   ██║╚══██╔══╝██╔══██╗██╔═══██╗████╗  ██║',
+    '██║     ██║   ██║   ██║   ██████╔╝██║   ██║██╔██╗ ██║',
+    '██║     ██║   ██║   ██║   ██╔══██╗██║   ██║██║╚██╗██║',
+    '╚██████╗╚██████╔╝   ██║   ██║  ██║╚██████╔╝██║ ╚████║',
+    ' ╚═════╝ ╚═════╝    ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝'
+].join('\n');
+
+const titleEl = document.createElement('pre');
+titleEl.className = 'logo-sweep';
+titleEl.textContent = CUTRON_LOGO;
 Object.assign(titleEl.style, {
-    fontFamily: "'Orbitron', sans-serif",
-    fontSize: '130px', 
-    fontWeight: '900', 
-    color: '#ffffff',
-    textTransform: 'uppercase',
-    letterSpacing: '10px',
-    fontStyle: 'italic',
-    textShadow: '0 0 10px #3498db, 0 0 20px #3498db, 0 0 40px #2980b9, 0 0 80px #2980b9, 4px 4px 0px rgba(0,0,0,0.5)',
-    marginBottom: '50px'
+    fontFamily: UI.artFont,
+    fontSize: 'clamp(5px, 2.4vw, 20px)',
+    lineHeight: '1.02',
+    whiteSpace: 'pre',
+    margin: '0 0 44px'
 });
-titleEl.innerText = i18n[lang].title;
 menuContent.appendChild(titleEl);
 
 function createMenuButton(textKey, onClick) {
@@ -258,23 +298,17 @@ function createMenuButton(textKey, onClick) {
     btn.dataset.textKey = textKey;
     btn.innerText = t(textKey);
     Object.assign(btn.style, {
-        padding: '15px 40px', fontSize: '22px', fontWeight: 'bold', cursor: 'pointer',
-        backgroundColor: 'rgba(255,255,255,0.05)', color: '#60a5fa', border: '2px solid #60a5fa',
-        borderRadius: '8px', marginBottom: '20px', width: '300px',
-        transition: 'all 0.2s', backdropFilter: 'blur(5px)'
+        fontFamily: UI.font,
+        padding: '12px 18px', fontSize: '26px', lineHeight: '1.3', cursor: 'pointer',
+        backgroundColor: 'transparent', color: UI.cyan, border: `2px solid ${UI.cyan}`,
+        borderRadius: '0', marginBottom: '16px', width: '340px',
+        letterSpacing: '1px', textTransform: 'uppercase', transition: 'none'
     });
-    btn.onmouseover = () => { 
-        btn.style.backgroundColor = 'rgba(96, 165, 250, 0.2)'; 
-        btn.style.transform = 'scale(1.05)'; 
-        soundManager.playSFX('hover');
-    };
-    btn.onmouseout = () => { 
-        btn.style.backgroundColor = 'rgba(255,255,255,0.05)'; 
-        btn.style.transform = 'scale(1)'; 
-    };
+    applyHoverFill(btn, UI.cyan);
     btn.onclick = (e) => {
+        soundManager.unlock();
         soundManager.playSFX('click');
-        soundManager.startGlobalBGM();
+        soundManager.startMenuMusic();
         onClick(e);
     };
     return btn;
@@ -294,10 +328,12 @@ const btnSettings = createMenuButton('settings', () => {
     menuUI.style.display = 'none';
     settingsUI.style.display = 'flex';
 });
+const btnHelp = createMenuButton('help', () => openHelp());
 
 menuContent.appendChild(btnContinue);
 menuContent.appendChild(btnNewGame);
 menuContent.appendChild(btnLanguage);
+menuContent.appendChild(btnHelp);
 menuContent.appendChild(btnSettings);
 
 // VÝBĚR LEVELU UI
@@ -305,14 +341,14 @@ const levelSelectUI = document.createElement('div');
 Object.assign(levelSelectUI.style, {
     position: 'absolute', top: '0', left: '0', width: '100%', height: '100%',
     display: 'none', flexDirection: 'column', alignItems: 'center', pointerEvents: 'auto',
-    backgroundColor: 'rgba(15, 23, 42, 0.9)'
+    backgroundColor: UI.overlay
 });
 uiContainer.appendChild(levelSelectUI);
 
 const levelSelectTitle = document.createElement('div');
 Object.assign(levelSelectTitle.style, {
-    fontFamily: "'Orbitron', sans-serif", fontSize: '50px', fontWeight: '900', color: '#f8fafc', 
-    marginTop: '10vh', marginBottom: '40px', textShadow: '0 0 10px #3498db'
+    fontFamily: UI.font, fontSize: 'clamp(30px, 5vw, 56px)', color: UI.text,
+    marginTop: '10vh', marginBottom: '40px', letterSpacing: '2px', textShadow: UI.glow(UI.cyan)
 });
 levelSelectTitle.dataset.textKey = 'selectLevel';
 levelSelectUI.appendChild(levelSelectTitle);
@@ -330,19 +366,130 @@ const btnBackMenu = createMenuButton('back', () => {
 btnBackMenu.style.marginTop = '50px';
 levelSelectUI.appendChild(btnBackMenu);
 
+// --- OBSAH NÁPOVĚDY (chování odpovídá třídám Bouncer/Eater/Bomber/Fireball/Item) ---
+const HELP_ENTRIES = [
+    {
+        shape: 'sphere', color: '#ff3355',
+        cz: { name: 'Bouncer', desc: 'Nejrychlejší z nepřátel. Odráží se od zabrané plochy i od stěn arény. Zabije tě při dotyku — a stejně tak, když sám narazí do tvé rozdělané brázdy. Zabrané území nepoškozuje.' },
+        en: { name: 'Bouncer', desc: 'The fastest enemy. Bounces off captured ground and arena walls. It kills you on contact — and also when it runs into your unfinished trail. It does not damage captured territory.' }
+    },
+    {
+        shape: 'poly', color: '#c44dff',
+        cz: { name: 'Eater', desc: 'Pomalejší než Bouncer, zato při každém nárazu do zabrané plochy z ní ukousne čtverec 5×5 polí. Postupně ti tak ubírá už získané území.' },
+        en: { name: 'Eater', desc: 'Slower than the Bouncer, but every time it hits captured ground it bites out a 5×5 square. It steadily eats away the territory you already won.' }
+    },
+    {
+        shape: 'diamond', color: '#1a1a24', stroke: '#ff6a00',
+        cz: { name: 'Bomber', desc: 'Nejpomalejší nepřítel. Každých 5 sekund vystřelí ohnivou kouli náhodným směrem. Sám území nepoškozuje — to za něj obstarají jeho střely.' },
+        en: { name: 'Bomber', desc: 'The slowest enemy. Every 5 seconds it fires a fireball in a random direction. It does no damage itself — its projectiles do the work.' }
+    },
+    {
+        shape: 'sphere', color: '#ffb020',
+        cz: { name: 'Ohnivá koule', desc: 'Letí rovně a velmi rychle. Při nárazu do zabrané plochy vybuchne a vypálí v ní kruh o poloměru 5 polí. Když zasáhne tebe nebo tvou brázdu, přijdeš o život.' },
+        en: { name: 'Fireball', desc: 'Flies straight and very fast. On hitting captured ground it explodes and burns out a circle with a radius of 5 cells. If it hits you or your trail, you lose a life.' }
+    },
+    {
+        shape: 'mine', color: '#ff3b5c',
+        cz: { name: 'Mina', desc: 'Objeví se uvnitř zabraného území. Jakmile se přiblížíš na 4 pole, spustí se odpočet 5 sekund — pak vybuchne, zničí kruh o poloměru 7 polí a v jeho dosahu zabije i tebe.' },
+        en: { name: 'Mine', desc: 'Appears inside captured territory. Come within 4 cells and a 5 second countdown starts — then it explodes, destroying a circle with a radius of 7 cells and killing you if you are inside it.' }
+    }
+];
+
+function enemyShapeSvg(entry) {
+    const stroke = entry.stroke ? ` stroke="${entry.stroke}" stroke-width="3"` : '';
+    let body;
+    if (entry.shape === 'sphere') {
+        body = `<circle cx="22" cy="22" r="15" fill="${entry.color}"${stroke}/>`;
+    } else if (entry.shape === 'poly') {
+        body = `<polygon points="22,6 36,14 36,30 22,38 8,30 8,14" fill="${entry.color}"${stroke}/>`;
+    } else if (entry.shape === 'diamond') {
+        body = `<polygon points="22,5 39,22 22,39 5,22" fill="${entry.color}"${stroke}/>`;
+    } else {
+        body = `<circle cx="22" cy="26" r="12" fill="#1a1a24" stroke="${entry.color}" stroke-width="3"/><rect x="20" y="6" width="4" height="9" fill="${entry.color}"/>`;
+    }
+    return `<svg width="44" height="44" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">${body}</svg>`;
+}
+
+// NÁPOVĚDA UI
+const helpUI = document.createElement('div');
+Object.assign(helpUI.style, {
+    position: 'absolute', top: '0', left: '0', width: '100%', height: '100%',
+    display: 'none', flexDirection: 'column', alignItems: 'center', pointerEvents: 'auto',
+    backgroundColor: UI.overlay, overflowY: 'auto', padding: '0 20px 40px'
+});
+uiContainer.appendChild(helpUI);
+
+const helpTitle = document.createElement('div');
+Object.assign(helpTitle.style, {
+    fontFamily: UI.font, fontSize: 'clamp(30px, 5vw, 56px)', color: UI.text,
+    marginTop: '8vh', marginBottom: '32px', letterSpacing: '2px', textShadow: UI.glow(UI.cyan)
+});
+helpTitle.dataset.textKey = 'helpTitle';
+helpUI.appendChild(helpTitle);
+
+const helpList = document.createElement('div');
+Object.assign(helpList.style, {
+    display: 'flex', flexDirection: 'column', gap: '18px', width: '100%', maxWidth: '680px'
+});
+helpUI.appendChild(helpList);
+
+function openHelp() {
+    setTimeout(() => uiWarp.refresh(), 0);
+    menuUI.style.display = 'none';
+    helpUI.style.display = 'flex';
+    helpList.innerHTML = '';
+
+    for (const entry of HELP_ENTRIES) {
+        const row = document.createElement('div');
+        Object.assign(row.style, {
+            display: 'flex', gap: '18px', alignItems: 'flex-start',
+            border: `2px solid ${UI.panelEdge}`, padding: '16px 18px'
+        });
+
+        const icon = document.createElement('div');
+        icon.style.flex = '0 0 auto';
+        icon.innerHTML = enemyShapeSvg(entry);
+
+        const text = document.createElement('div');
+        const name = document.createElement('div');
+        Object.assign(name.style, {
+            fontFamily: UI.font, fontSize: '24px', color: entry.stroke || entry.color,
+            marginBottom: '6px', letterSpacing: '1px'
+        });
+        name.textContent = entry[lang].name;
+
+        const desc = document.createElement('div');
+        Object.assign(desc.style, {
+            fontFamily: UI.font, fontSize: '19px', color: UI.text, lineHeight: '1.45'
+        });
+        desc.textContent = entry[lang].desc;
+
+        text.append(name, desc);
+        row.append(icon, text);
+        helpList.appendChild(row);
+    }
+}
+
+const btnBackHelp = createMenuButton('back', () => {
+    helpUI.style.display = 'none';
+    menuUI.style.display = 'flex';
+});
+btnBackHelp.style.margin = '36px 0 0';
+helpUI.appendChild(btnBackHelp);
+
 // NASTAVENÍ UI
 const settingsUI = document.createElement('div');
 Object.assign(settingsUI.style, {
     position: 'absolute', top: '0', left: '0', width: '100%', height: '100%',
     display: 'none', flexDirection: 'column', alignItems: 'center', pointerEvents: 'auto',
-    backgroundColor: 'rgba(15, 23, 42, 0.95)'
+    backgroundColor: UI.overlay
 });
 uiContainer.appendChild(settingsUI);
 
 const settingsTitle = document.createElement('div');
 Object.assign(settingsTitle.style, {
-    fontFamily: "'Orbitron', sans-serif", fontSize: '50px', fontWeight: '900', color: '#f8fafc', 
-    marginTop: '10vh', marginBottom: '40px', textShadow: '0 0 10px #3498db'
+    fontFamily: UI.font, fontSize: 'clamp(30px, 5vw, 56px)', color: UI.text,
+    marginTop: '10vh', marginBottom: '40px', letterSpacing: '2px', textShadow: UI.glow(UI.cyan)
 });
 settingsTitle.dataset.textKey = 'settings';
 settingsUI.appendChild(settingsTitle);
@@ -354,9 +501,11 @@ function createSlider(labelKey, initialValue, onChangeCallback) {
 
     const label = document.createElement('div');
     label.dataset.textKey = labelKey;
-    label.style.color = '#f8fafc';
+    label.style.color = UI.text;
+    label.style.fontFamily = UI.font;
     label.style.fontSize = '24px';
-    label.style.marginBottom = '15px';
+    label.style.letterSpacing = '1px';
+    label.style.marginBottom = '18px';
     
     const slider = document.createElement('input');
     slider.type = 'range';
@@ -383,6 +532,19 @@ settingsUI.appendChild(createSlider('sfxVol', settingsConfig.sfxVol, (val) => {
     soundManager.updateVolumes();
 }));
 
+const btnCrt = createMenuButton('crtOn', () => {
+    const enabled = !crt.isEnabled();
+    crt.setEnabled(enabled);
+    uiWarp.setEnabled(enabled);
+    settingsConfig.crt = enabled;
+    saveSettings();
+    btnCrt.dataset.textKey = enabled ? 'crtOn' : 'crtOff';
+    btnCrt.innerText = t(btnCrt.dataset.textKey);
+});
+btnCrt.dataset.textKey = settingsConfig.crt === false ? 'crtOff' : 'crtOn';
+btnCrt.style.marginTop = '30px';
+settingsUI.appendChild(btnCrt);
+
 const btnBackSettings = createMenuButton('back', () => {
     settingsUI.style.display = 'none';
     menuUI.style.display = 'flex';
@@ -400,41 +562,57 @@ uiContainer.appendChild(gameUI);
 
 const hudContainer = document.createElement('div');
 Object.assign(hudContainer.style, {
-    position: 'absolute', top: '20px', left: '20px', display: 'flex', gap: '25px',
-    fontSize: '24px', fontWeight: 'bold', color: '#f8fafc', textShadow: '0px 2px 4px rgba(0,0,0,0.8)'
+    position: 'absolute', top: '4.5%', left: '4.5%', display: 'flex', gap: '22px',
+    fontFamily: UI.font, fontSize: '26px', color: UI.text, letterSpacing: '1px',
+    textShadow: '2px 2px 0 rgba(0,0,0,0.9)'
 });
 gameUI.appendChild(hudContainer);
+uiWarp.register(hudContainer);
 
-const livesEl = document.createElement('div');
-const timeEl = document.createElement('div');
-const percentEl = document.createElement('div');
-hudContainer.appendChild(livesEl);
-hudContainer.appendChild(percentEl);
-hudContainer.appendChild(timeEl);
+function createHudItem(iconName, iconColor) {
+    const wrap = document.createElement('div');
+    Object.assign(wrap.style, { display: 'flex', alignItems: 'center', gap: '9px' });
+
+    const icon = document.createElement('span');
+    icon.style.display = 'flex';
+    icon.innerHTML = pixelIcon(iconName, iconColor, 3);
+
+    const value = document.createElement('span');
+    wrap.append(icon, value);
+    return { wrap, value };
+}
+
+const livesHud = createHudItem('heart', UI.danger);
+const percentHud = createHudItem('area', UI.cyan);
+const timeHud = createHudItem('timer', UI.amber);
+hudContainer.append(livesHud.wrap, percentHud.wrap, timeHud.wrap);
 
 // --- HORNÍ TLAČÍTKA (Pauza a Ukončit) ---
 const topButtons = document.createElement('div');
 Object.assign(topButtons.style, {
-    position: 'absolute', top: '20px', right: '20px', display: 'flex', gap: '15px', zIndex: '100'
+    position: 'absolute', top: '4.5%', right: '4.5%', display: 'flex', gap: '15px', zIndex: '100'
 });
 gameUI.appendChild(topButtons);
+uiWarp.register(topButtons);
 
 const pauseBtn = document.createElement('button');
 pauseBtn.dataset.textKey = 'pause';
 Object.assign(pauseBtn.style, {
-    padding: '10px 20px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer',
-    pointerEvents: 'auto', backgroundColor: 'rgba(255,255,255,0.1)',
-    border: '2px solid #60a5fa', color: '#60a5fa', borderRadius: '5px'
+    padding: '10px 20px', cursor: 'pointer',
+    pointerEvents: 'auto', backgroundColor: 'transparent',
+    fontFamily: UI.font, fontSize: '20px', border: `2px solid ${UI.cyan}`, color: UI.cyan, borderRadius: '0'
 });
+applyHoverFill(pauseBtn, UI.cyan);
 topButtons.appendChild(pauseBtn);
 
 const quitBtn = document.createElement('button');
 quitBtn.dataset.textKey = 'quit';
 Object.assign(quitBtn.style, {
-    padding: '10px 20px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer',
-    pointerEvents: 'auto', backgroundColor: 'rgba(231, 76, 60, 0.1)',
-    border: '2px solid #e74c3c', color: '#e74c3c', borderRadius: '5px'
+    padding: '10px 20px', cursor: 'pointer',
+    pointerEvents: 'auto', backgroundColor: 'transparent',
+    fontFamily: UI.font, fontSize: '20px', border: `2px solid ${UI.danger}`, color: UI.danger, borderRadius: '0'
 });
+applyHoverFill(quitBtn, UI.danger);
 quitBtn.onclick = (e) => {
     e.stopPropagation();
     soundManager.playSFX('click');
@@ -446,8 +624,8 @@ topButtons.appendChild(quitBtn);
 const pauseOverlay = document.createElement('div');
 Object.assign(pauseOverlay.style, {
     position: 'absolute', top: '0', left: '0', width: '100%', height: '100%',
-    backgroundColor: 'rgba(15, 23, 42, 0.85)', display: 'none', justifyContent: 'center',
-    alignItems: 'center', flexDirection: 'column', color: '#3498db', fontSize: '48px',
+    backgroundColor: UI.overlay, display: 'none', justifyContent: 'center',
+    alignItems: 'center', flexDirection: 'column', color: UI.cyan, fontSize: 'clamp(26px, 4vw, 42px)',
     fontWeight: 'bold', pointerEvents: 'auto', textAlign: 'center'
 });
 gameUI.appendChild(pauseOverlay);
@@ -455,7 +633,7 @@ gameUI.appendChild(pauseOverlay);
 const resultOverlay = document.createElement('div');
 Object.assign(resultOverlay.style, {
     position: 'absolute', top: '0', left: '0', width: '100%', height: '100%',
-    backgroundColor: 'rgba(15, 23, 42, 0.95)', display: 'none', justifyContent: 'center',
+    backgroundColor: UI.overlay, display: 'none', justifyContent: 'center',
     alignItems: 'center', flexDirection: 'column', pointerEvents: 'auto', textAlign: 'center'
 });
 gameUI.appendChild(resultOverlay);
@@ -467,20 +645,21 @@ Object.assign(controlsUI.style, {
     display: 'flex', gap: '40px', alignItems: 'center'
 });
 gameUI.appendChild(controlsUI);
+uiWarp.register(controlsUI);
 
 function createKeyElement(keyText) {
     const el = document.createElement('div');
     el.innerText = keyText;
     Object.assign(el.style, {
         padding: '8px 12px', fontSize: '16px', fontWeight: 'bold', backgroundColor: 'rgba(255,255,255,0.1)',
-        border: '2px solid #3498db', color: '#3498db', borderRadius: '5px'
+        fontFamily: UI.font, fontSize: '22px', border: `2px solid ${UI.cyan}`, color: UI.cyan, borderRadius: '0'
     });
     return el;
 }
 function createTextElement(key) {
     const el = document.createElement('div');
     el.dataset.textKey = key;
-    Object.assign(el.style, { fontSize: '20px', fontWeight: 'bold', color: '#cbd5e1' });
+    Object.assign(el.style, { fontFamily: UI.font, fontSize: '22px', color: UI.dim, letterSpacing: '1px' });
     return el;
 }
 
@@ -505,6 +684,7 @@ function updateAllTexts() {
 }
 
 function openLevelSelect() {
+    setTimeout(() => uiWarp.refresh(), 0);
     menuUI.style.display = 'none';
     levelSelectUI.style.display = 'flex';
     levelGrid.innerHTML = '';
@@ -515,35 +695,47 @@ function openLevelSelect() {
         
         Object.assign(box.style, {
             width: '120px', height: '120px', display: 'flex', flexDirection: 'column',
-            justifyContent: 'center', alignItems: 'center', borderRadius: '10px',
-            border: isUnlocked ? '2px solid #3498db' : '2px solid #475569',
-            backgroundColor: isUnlocked ? 'rgba(52, 152, 219, 0.1)' : 'rgba(71, 85, 105, 0.1)',
-            cursor: isUnlocked ? 'pointer' : 'not-allowed', transition: 'transform 0.2s',
-            color: isUnlocked ? '#f8fafc' : '#94a3b8'
+            justifyContent: 'center', alignItems: 'center', borderRadius: '0',
+            border: isUnlocked ? `2px solid ${UI.cyan}` : '2px solid #2b3a4a',
+            backgroundColor: 'transparent',
+            cursor: isUnlocked ? 'pointer' : 'not-allowed',
+            color: isUnlocked ? UI.cyan : UI.dim
         });
 
-        box.innerHTML = `<div style="font-family: 'Orbitron', sans-serif; font-size: 32px; font-weight: 900;">${config.id}</div>`;
+        box.innerHTML = `<div style="font-family: ${UI.font}; font-size: 42px;">${config.id}</div>`;
         
         if (progress.scores[config.id]) {
-            box.innerHTML += `<div style="font-size: 14px; margin-top: 10px; color: #2ecc71;">⭐ ${progress.scores[config.id]}</div>`;
+            box.innerHTML += `<div style="font-family: ${UI.font}; font-size: 18px; margin-top: 8px; color: inherit; display: flex; align-items: center; gap: 6px;">${pixelIcon('star')} ${progress.scores[config.id]}</div>`;
         } else if (!isUnlocked) {
-            box.innerHTML += `<div style="font-size: 14px; margin-top: 10px;">🔒</div>`;
+            box.innerHTML += `<div style="margin-top: 8px; display: flex; color: inherit;">${pixelIcon('lock')}</div>`;
         }
 
         if (isUnlocked) {
-            box.onmouseover = () => { box.style.transform = 'scale(1.1)'; soundManager.playSFX('hover'); };
-            box.onmouseout = () => box.style.transform = 'scale(1)';
+            applyHoverFill(box, UI.cyan);
             box.onclick = () => { soundManager.playSFX('click'); startLevel(config.id); };
         }
         levelGrid.appendChild(box);
     });
 }
 
+let hudLives = null, hudSeconds = null, hudPercent = null, hudTarget = null;
+
 function updateHUD() {
-    livesEl.innerText = `❤️ ${lives}`;
-    timeEl.innerText = `⏱️ ${Math.ceil(timeRemaining)}s`;
-    percentEl.innerText = `📊 ${filledPercentage}% / ${targetPercentage}%`;
-    timeEl.style.color = timeRemaining <= 10 ? '#e74c3c' : '#f8fafc'; 
+    if (lives !== hudLives) {
+        livesHud.value.textContent = lives;
+        hudLives = lives;
+    }
+    const seconds = Math.ceil(timeRemaining);
+    if (seconds !== hudSeconds) {
+        timeHud.value.textContent = `${seconds}s`;
+        timeHud.value.style.color = timeRemaining <= 10 ? UI.danger : UI.text;
+        hudSeconds = seconds;
+    }
+    if (filledPercentage !== hudPercent || targetPercentage !== hudTarget) {
+        percentHud.value.textContent = `${filledPercentage}% / ${targetPercentage}%`;
+        hudPercent = filledPercentage;
+        hudTarget = targetPercentage;
+    }
 }
 
 function togglePause(forcePause) {
@@ -553,13 +745,13 @@ function togglePause(forcePause) {
     isPaused = typeof forcePause === 'boolean' ? forcePause : !isPaused;
 
     if (isPaused) {
-        soundManager.engine.pause();
+        soundManager.stopEngine();
         pauseOverlay.style.display = 'flex';
-        pauseOverlay.innerHTML = `<span style="font-family: 'Orbitron', sans-serif;">${t('pausedTitle')}</span><br><span style="font-size: 20px; color: #cbd5e1; cursor:pointer; margin-top:15px;">${t('pausedSub')}</span>`;
+        pauseOverlay.innerHTML = `<span style="font-family: ${UI.font};">${t('pausedTitle')}</span><br><span style="font-family: ${UI.font}; font-size: 22px; color: ${UI.dim}; cursor:pointer; display:inline-block; margin-top:20px;">${t('pausedSub')}</span>`;
         pauseBtn.dataset.textKey = 'resume';
         pauseBtn.innerText = t('resume');
     } else {
-        soundManager.engine.play().catch(()=>{});
+        soundManager.startEngine();
         pauseOverlay.style.display = 'none';
         pauseBtn.dataset.textKey = 'pause';
         pauseBtn.innerText = t('pause');
@@ -579,8 +771,9 @@ function quitToMenu() {
     gameState = 'MENU';
     cameraShakeTime = 0;
     lastTrailDir = null;
-    
-    soundManager.engine.pause();
+
+    soundManager.stopEngine();
+    soundManager.startMenuMusic();
     
     // Skrytí všech herních UI a arény
     pauseOverlay.style.display = 'none';
@@ -608,7 +801,8 @@ function quitToMenu() {
 
 function showResult(isWin, reasonKey = "") {
     isGameOver = true;
-    soundManager.engine.pause();
+    soundManager.stopEngine();
+    soundManager.stopGameMusic();
     resultOverlay.style.display = 'flex';
     controlsUI.style.display = 'none';
     
@@ -624,15 +818,15 @@ function showResult(isWin, reasonKey = "") {
         }
         saveProgress();
 
-        scoreHTML = `<div style="font-size: 30px; margin-top: 20px; color: #2ecc71;">${t('score')}: ${score}</div>`;
+        scoreHTML = `<div style="font-family: ${UI.font}; font-size: 28px; margin-top: 24px; color: ${UI.success};">${t('score')}: ${score}</div>`;
         resultOverlay.innerHTML = `
-            <div style="font-family: 'Orbitron', sans-serif; color: #2ecc71; font-size: 60px; font-weight: 900; text-shadow: 0 0 10px #2ecc71;">${t('victory')}</div>
-            <div style="font-size: 24px; color: #cbd5e1; margin-top: 10px;">${t('captured').replace('%s', filledPercentage)}</div>
+            <div style="font-family: ${UI.font}; color: ${UI.success}; font-size: clamp(34px, 6vw, 68px); text-shadow: ${UI.glow(UI.success)};">${t('victory')}</div>
+            <div style="font-family: ${UI.font}; font-size: 24px; color: ${UI.text}; margin-top: 20px;">${t('captured').replace('%s', filledPercentage)}</div>
             ${scoreHTML}`;
     } else {
         resultOverlay.innerHTML = `
-            <div style="font-family: 'Orbitron', sans-serif; color: #e74c3c; font-size: 60px; font-weight: 900; text-shadow: 0 0 10px #e74c3c;">${t('gameOver')}</div>
-            <div style="font-size: 24px; color: #cbd5e1; margin-top: 10px;">${reasonKey}</div>`;
+            <div style="font-family: ${UI.font}; color: ${UI.danger}; font-size: clamp(34px, 6vw, 68px); text-shadow: ${UI.glow(UI.danger)};">${t('gameOver')}</div>
+            <div style="font-family: ${UI.font}; font-size: 24px; color: ${UI.text}; margin-top: 20px;">${reasonKey}</div>`;
     }
 
     const btnContainer = document.createElement('div');
@@ -642,9 +836,10 @@ function showResult(isWin, reasonKey = "") {
         const nextBtn = document.createElement('button');
         nextBtn.innerText = t('nextLevel');
         Object.assign(nextBtn.style, {
-            padding: '15px 30px', fontSize: '18px', fontWeight: 'bold', cursor: 'pointer',
-            backgroundColor: '#2ecc71', color: 'white', border: 'none', borderRadius: '5px'
+            fontFamily: UI.font, padding: '14px 22px', fontSize: '22px', cursor: 'pointer',
+            backgroundColor: 'transparent', color: UI.success, border: `2px solid ${UI.success}`, borderRadius: '0'
         });
+        applyHoverFill(nextBtn, UI.success);
         nextBtn.onclick = () => { soundManager.playSFX('click'); startLevel(currentLevelId + 1); };
         btnContainer.appendChild(nextBtn);
     }
@@ -652,17 +847,19 @@ function showResult(isWin, reasonKey = "") {
     const restartBtn = document.createElement('button');
     restartBtn.innerText = t('playAgain');
     Object.assign(restartBtn.style, {
-        padding: '15px 30px', fontSize: '18px', fontWeight: 'bold', cursor: 'pointer',
-        backgroundColor: '#3498db', color: 'white', border: 'none', borderRadius: '5px'
+        fontFamily: UI.font, padding: '14px 22px', fontSize: '22px', cursor: 'pointer',
+        backgroundColor: 'transparent', color: UI.cyan, border: `2px solid ${UI.cyan}`, borderRadius: '0'
     });
-    restartBtn.onclick = () => { soundManager.playSFX('click'); startLevel(currentLevelId); }; 
+    applyHoverFill(restartBtn, UI.cyan);
+    restartBtn.onclick = () => { soundManager.playSFX('click'); startLevel(currentLevelId); };
     
     const menuBtn = document.createElement('button');
     menuBtn.innerText = t('mainMenu');
     Object.assign(menuBtn.style, {
-        padding: '15px 30px', fontSize: '18px', fontWeight: 'bold', cursor: 'pointer',
-        backgroundColor: 'transparent', color: '#3498db', border: '2px solid #3498db', borderRadius: '5px'
+        fontFamily: UI.font, padding: '14px 22px', fontSize: '22px', cursor: 'pointer',
+        backgroundColor: 'transparent', color: UI.dim, border: `2px solid ${UI.dim}`, borderRadius: '0'
     });
+    applyHoverFill(menuBtn, UI.dim);
     menuBtn.onclick = () => { soundManager.playSFX('click'); quitToMenu(); };
 
     btnContainer.appendChild(restartBtn);
@@ -672,14 +869,14 @@ function showResult(isWin, reasonKey = "") {
 
 
 // --- 2. OSVĚTLENÍ ---
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+const ambientLight = new THREE.AmbientLight(0xffffff, 1.05);
 scene.add(ambientLight);
 
-const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.45);
 dirLight.position.set(10, 20, 10);
 dirLight.castShadow = true;
-dirLight.shadow.mapSize.width = 2048;
-dirLight.shadow.mapSize.height = 2048;
+dirLight.shadow.mapSize.width = 1024;
+dirLight.shadow.mapSize.height = 1024;
 
 // Širší stínová kamera pro pokrytí celé arény
 const d = 25; 
@@ -706,7 +903,7 @@ const sceneGroup = new THREE.Group();
 sceneGroup.visible = false; 
 scene.add(sceneGroup);
 
-const emptyMaterial = new THREE.MeshLambertMaterial({ color: 0xbdc3c7 }); 
+const emptyMaterial = new THREE.MeshLambertMaterial({ color: 0x35356b });
 const floor = new THREE.Mesh(new THREE.PlaneGeometry(ARENA_SIZE, ARENA_SIZE), emptyMaterial);
 floor.rotation.x = -Math.PI / 2;
 floor.receiveShadow = true;
@@ -722,9 +919,16 @@ blocksMesh.receiveShadow = true;
 blocksMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 sceneGroup.add(blocksMesh);
 
-const dummy = new THREE.Object3D(); 
-const colorWall = new THREE.Color(0x3498db);  
-const colorTrail = new THREE.Color(0xe74c3c); 
+const dummy = new THREE.Object3D();
+const colorWall = new THREE.Color(0x00d9ff);
+const colorTrail = new THREE.Color(0xffa023);
+
+// Buffery pro flood fill — alokované jednou, aby uzavření plochy nevytvářelo odpad pro GC
+const regionIds = new Int32Array(MAX_BLOCKS);
+const floodQueue = new Int32Array(MAX_BLOCKS);
+const trailMask = new Uint8Array(MAX_BLOCKS);
+const regionTouchesTrail = new Uint8Array(MAX_BLOCKS);
+const regionHasEnemy = new Uint8Array(MAX_BLOCKS);
 
 function getIndex(x, z) { return z * GRID_SIZE + x; }
 
@@ -793,6 +997,46 @@ let droneModel = null;
 player.position.set(0, 0, (ARENA_SIZE / 2) - (CELL_SIZE / 2));
 scene.add(player);
 
+// Textura vzdušného víru: za každým ze dvou listů světlý ocas, který
+// proti směru otáčení slábne do ztracena. Kreslí se jednou, sdílí ji oba rotory.
+function createRotorWakeTexture(mirrored) {
+    const SIZE = 192;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = SIZE;
+    const ctx = canvas.getContext('2d');
+
+    const center = SIZE / 2;
+    const outer = center * 0.97;
+    const inner = center * 0.60;
+    const SEGMENTS = 240;
+
+    for (let i = 0; i < SEGMENTS; i++) {
+        // dvě otáčky fáze na jedno kolo = jeden ocas za každým listem
+        const phase = ((i / SEGMENTS) * 2) % 1;
+        const fade = Math.pow(1 - phase, 2.4);
+        if (fade < 0.004) continue;
+
+        const a0 = (i / SEGMENTS) * Math.PI * 2;
+        const a1 = ((i + 1.6) / SEGMENTS) * Math.PI * 2;
+        const start = mirrored ? -a1 : a0;
+        const end = mirrored ? -a0 : a1;
+
+        // ocas se směrem dozadu i zužuje, aby se rozplýval
+        const width = inner + (outer - inner) * (0.35 + 0.65 * fade);
+
+        ctx.beginPath();
+        ctx.arc(center, center, outer, start, end);
+        ctx.arc(center, center, outer - (width - inner), end, start, true);
+        ctx.closePath();
+        ctx.fillStyle = `rgba(226, 240, 255, ${(0.14 * fade).toFixed(4)})`;
+        ctx.fill();
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    return texture;
+}
+
 const loader = new GLTFLoader();
 loader.load('Sprite_drone_2.glb', (gltf) => {
     droneModel = gltf.scene; 
@@ -806,6 +1050,41 @@ loader.load('Sprite_drone_2.glb', (gltf) => {
             child.castShadow = true;
             child.receiveShadow = true;
         }
+    });
+
+    // Vrtule si nechávají původní tmavou barvu z modelu, přisvícení se jich
+    // ale týká stejně jako těla — jen nezáří, dokud na ně nedopadne světlo scény.
+    droneModel.traverse((child) => {
+        if (!child.isMesh || !child.material || !child.material.emissive) return;
+        child.material = child.material.clone();
+        child.material.emissive.setHex(0x3d4a63);
+        child.material.emissiveIntensity = 1;
+    });
+
+    // Vzdušný vír za listy. Textura má za každým ze dvou listů světlý ocas,
+    // který proti směru otáčení slábne do ztracena. Protože je kroužek
+    // potomkem rotoru, ocasy se točí s ním a vypadají jako vířící vzduch.
+    droneModel.updateWorldMatrix(true, true);
+    const boxSize = new THREE.Vector3();
+    [rotor1, rotor2].forEach((rotor, index) => {
+        if (!rotor) return;
+        new THREE.Box3().setFromObject(rotor).getSize(boxSize);
+        const tipRadius = Math.max(boxSize.x, boxSize.z) * 0.5 / droneModel.scale.x;
+
+        const wake = new THREE.Mesh(
+            new THREE.RingGeometry(tipRadius * 0.58, tipRadius * 1.06, 48),
+            new THREE.MeshBasicMaterial({
+                // rotory se točí proti sobě, takže druhý ocas musí být zrcadlený
+                map: createRotorWakeTexture(index === 1),
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+                side: THREE.DoubleSide
+            })
+        );
+        wake.rotation.x = -Math.PI / 2;
+        wake.userData.isRotorWake = true;
+        rotor.add(wake);
     });
     
     player.add(droneModel); 
@@ -842,44 +1121,78 @@ window.addEventListener('keyup', (e) => {
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    crt.resize();
+    uiWarp.refresh();
 });
 
 // --- 6. NEPŘÁTELÉ A EXPLOZE ---
-const particles = [];
+const MAX_PARTICLES = 600;
 const particleGeo = new THREE.BoxGeometry(0.15, 0.15, 0.15);
-const particleMatRed = new THREE.MeshBasicMaterial({ color: 0x8b0000 }); 
-const particleMatBlack = new THREE.MeshBasicMaterial({ color: 0x222222 }); 
-const particleMatOrange = new THREE.MeshBasicMaterial({ color: 0xff8800 }); 
-const fwColors = [0xffd700, 0x00ffaa, 0x00aaff, 0xff00aa, 0xffffff]; 
-const fwMaterials = fwColors.map(c => new THREE.MeshBasicMaterial({ color: c }));
+const particlesMesh = new THREE.InstancedMesh(particleGeo, new THREE.MeshBasicMaterial(), MAX_PARTICLES);
+particlesMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+particlesMesh.frustumCulled = false;
+scene.add(particlesMesh);
 
-function createExplosion(x, y, z, count = 45, matOptions = [particleMatRed, particleMatBlack]) {
-    for (let i = 0; i < count; i++) { 
-        const mat = matOptions[Math.floor(Math.random() * matOptions.length)];
-        const mesh = new THREE.Mesh(particleGeo, mat);
-        mesh.position.set(x, y, z);
-        scene.add(mesh);
-        
+const COLOR_RED = 0x8b0000;
+const COLOR_BLACK = 0x222222;
+const COLOR_ORANGE = 0xff8800;
+const fwColors = [0xffd700, 0x00ffaa, 0x00aaff, 0xff00aa, 0xffffff];
+
+// Vlastní pomocný objekt — částice se otáčejí, a sdílený `dummy` musí pro bloky zůstat bez rotace
+const particleDummy = new THREE.Object3D();
+
+const particles = [];
+const freeParticleSlots = [];
+for (let i = MAX_PARTICLES - 1; i >= 0; i--) {
+    particles[i] = { active: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, rot: 0, life: 0 };
+    freeParticleSlots.push(i);
+    particleDummy.scale.set(0, 0, 0);
+    particleDummy.updateMatrix();
+    particlesMesh.setMatrixAt(i, particleDummy.matrix);
+}
+const particleColor = new THREE.Color();
+
+function spawnParticle(x, y, z, vx, vy, vz, life, colorHex) {
+    const slot = freeParticleSlots.pop();
+    if (slot === undefined) return;
+
+    const p = particles[slot];
+    p.active = true;
+    p.x = x; p.y = y; p.z = z;
+    p.vx = vx; p.vy = vy; p.vz = vz;
+    p.rot = 0; p.life = life;
+
+    particlesMesh.setColorAt(slot, particleColor.setHex(colorHex));
+    if (particlesMesh.instanceColor) particlesMesh.instanceColor.needsUpdate = true;
+}
+
+function releaseParticle(slot) {
+    particles[slot].active = false;
+    freeParticleSlots.push(slot);
+    particleDummy.scale.set(0, 0, 0);
+    particleDummy.updateMatrix();
+    particlesMesh.setMatrixAt(slot, particleDummy.matrix);
+}
+
+function createExplosion(x, y, z, count = 45, colors = [COLOR_RED, COLOR_BLACK]) {
+    for (let i = 0; i < count; i++) {
         const angle = Math.random() * Math.PI * 2;
-        const speed = Math.random() * 8 + 4; 
-        const vy = Math.random() * 10 + 5;   
-        particles.push({ mesh: mesh, vx: Math.cos(angle) * speed, vy: vy, vz: Math.sin(angle) * speed, life: 1.0 });
+        const speed = Math.random() * 8 + 4;
+        const vy = Math.random() * 10 + 5;
+        spawnParticle(x, y, z, Math.cos(angle) * speed, vy, Math.sin(angle) * speed, 1.0, colors[Math.floor(Math.random() * colors.length)]);
     }
+    particlesMesh.instanceMatrix.needsUpdate = true;
 }
 
 function createFireworks(x, y, z) {
-    const mat = fwMaterials[Math.floor(Math.random() * fwMaterials.length)];
+    const color = fwColors[Math.floor(Math.random() * fwColors.length)];
     for (let i = 0; i < 40; i++) {
-        const mesh = new THREE.Mesh(particleGeo, mat);
-        mesh.position.set(x, y, z);
-        scene.add(mesh);
-        
         const angle = Math.random() * Math.PI * 2;
-        const speed = Math.random() * 10 + 2; 
-        const vy = Math.random() * 12 + 4;   
-        particles.push({ mesh: mesh, vx: Math.cos(angle) * speed, vy: vy, vz: Math.sin(angle) * speed, life: 1.2 });
+        const speed = Math.random() * 10 + 2;
+        const vy = Math.random() * 12 + 4;
+        spawnParticle(x, y, z, Math.cos(angle) * speed, vy, Math.sin(angle) * speed, 1.2, color);
     }
+    particlesMesh.instanceMatrix.needsUpdate = true;
 }
 
 const activeItems = [];
@@ -962,7 +1275,7 @@ class Item {
         }
         
         if (ateSomething) { blocksMesh.instanceMatrix.needsUpdate = true; calculatePercentage(); }
-        createExplosion(this.mesh.position.x, this.mesh.position.y, this.mesh.position.z, 80, [particleMatRed, particleMatOrange, particleMatBlack]);
+        createExplosion(this.mesh.position.x, this.mesh.position.y, this.mesh.position.z, 80, [COLOR_RED, COLOR_ORANGE, COLOR_BLACK]);
         
         if (gameState === 'PLAYING' && !isRespawning && !isWinAnimating && !isGameOver) {
             const dx = player.position.x - this.mesh.position.x;
@@ -1005,10 +1318,18 @@ class Item {
     }
 }
 
+// Zvětšení modelů nepřátel kvůli čitelnosti při nízkém rozlišení.
+// Násobí se jen geometrie — `radius` zůstává, a protože z něj počítá kolize
+// s hráčem, zásah se spouští na stejnou vzdálenost jako dřív.
+const ENEMY_VISUAL_SCALE = 1.6;
+
 class Bouncer {
     constructor(x, z) {
-        this.radius = CELL_SIZE * 0.48; this.colRadius = CELL_SIZE * 0.4; 
-        this.mesh = new THREE.Mesh(new THREE.SphereGeometry(this.radius, 16, 16), new THREE.MeshStandardMaterial({ color: 0xff3333, emissive: 0x880000 }));
+        this.radius = CELL_SIZE * 0.48; this.colRadius = CELL_SIZE * 0.4;
+        this.mesh = new THREE.Mesh(
+            new THREE.SphereGeometry(this.radius * ENEMY_VISUAL_SCALE, 12, 12),
+            new THREE.MeshBasicMaterial({ color: 0xff3355 })
+        );
         this.mesh.position.set(x, BLOCK_HEIGHT / 2, z); this.mesh.castShadow = true;
         sceneGroup.add(this.mesh);
         const speed = 7; const angle = Math.random() * Math.PI * 2;
@@ -1055,7 +1376,10 @@ class Bouncer {
 class Eater {
     constructor(x, z) {
         this.radius = CELL_SIZE * 0.72; this.colRadius = CELL_SIZE * 0.4;
-        this.mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(this.radius, 0), new THREE.MeshStandardMaterial({ color: 0x9b59b6, emissive: 0x4a235a }));
+        this.mesh = new THREE.Mesh(
+            new THREE.IcosahedronGeometry(this.radius * ENEMY_VISUAL_SCALE, 0),
+            new THREE.MeshBasicMaterial({ color: 0xc44dff })
+        );
         this.mesh.position.set(x, BLOCK_HEIGHT / 2, z); this.mesh.castShadow = true;
         sceneGroup.add(this.mesh);
         const speed = 5; const angle = Math.random() * Math.PI * 2;
@@ -1122,8 +1446,11 @@ class Eater {
 
 class Fireball {
     constructor(x, z, angle) {
-        this.radius = CELL_SIZE * 0.3; this.colRadius = CELL_SIZE * 0.25; 
-        this.mesh = new THREE.Mesh(new THREE.SphereGeometry(this.radius, 8, 8), new THREE.MeshBasicMaterial({ color: 0xff8800 }));
+        this.radius = CELL_SIZE * 0.3; this.colRadius = CELL_SIZE * 0.25;
+        this.mesh = new THREE.Mesh(
+            new THREE.SphereGeometry(this.radius * ENEMY_VISUAL_SCALE, 8, 8),
+            new THREE.MeshBasicMaterial({ color: 0xffb020 })
+        );
         this.mesh.position.set(x, BLOCK_HEIGHT / 2, z); sceneGroup.add(this.mesh);
         const speed = 12; this.vx = Math.cos(angle) * speed; this.vz = Math.sin(angle) * speed;
         this.isDead = false;
@@ -1173,7 +1500,7 @@ class Fireball {
         }
 
         if (hit) {
-            createExplosion(this.mesh.position.x, this.mesh.position.y, this.mesh.position.z, 45, [particleMatOrange, particleMatBlack]);
+            createExplosion(this.mesh.position.x, this.mesh.position.y, this.mesh.position.z, 45, [COLOR_ORANGE, COLOR_BLACK]);
             sceneGroup.remove(this.mesh); this.isDead = true; return;
         }
         this.mesh.position.x = nextX; this.mesh.position.z = nextZ;
@@ -1192,7 +1519,13 @@ class Fireball {
 class Bomber {
     constructor(x, z) {
         this.radius = CELL_SIZE * 1.0; this.colRadius = CELL_SIZE * 0.4;
-        this.mesh = new THREE.Mesh(new THREE.OctahedronGeometry(this.radius, 0), new THREE.MeshStandardMaterial({ color: 0x222222, emissive: 0x111111 }));
+        const bomberGeo = new THREE.OctahedronGeometry(this.radius * ENEMY_VISUAL_SCALE, 0);
+        this.mesh = new THREE.Mesh(bomberGeo, new THREE.MeshBasicMaterial({ color: 0x1a1a24 }));
+        // Tmavé těleso na tmavém pozadí zaniká, proto svítící obrys
+        this.mesh.add(new THREE.LineSegments(
+            new THREE.EdgesGeometry(bomberGeo),
+            new THREE.LineBasicMaterial({ color: 0xff6a00 })
+        ));
         this.mesh.position.set(x, BLOCK_HEIGHT / 2, z); this.mesh.castShadow = true;
         sceneGroup.add(this.mesh);
         const speed = 2.5; const angle = Math.random() * Math.PI * 2;
@@ -1255,8 +1588,10 @@ function clearSceneEntities() {
     fireballs.length = 0;
     activeItems.forEach(i => sceneGroup.remove(i.mesh));
     activeItems.length = 0;
-    particles.forEach(p => scene.remove(p.mesh));
-    particles.length = 0;
+    for (let i = 0; i < MAX_PARTICLES; i++) {
+        if (particles[i].active) releaseParticle(i);
+    }
+    particlesMesh.instanceMatrix.needsUpdate = true;
     droneDebris.forEach(d => scene.remove(d.mesh));
     droneDebris.length = 0;
 }
@@ -1305,9 +1640,11 @@ function startLevel(levelId) {
     resultOverlay.style.display = 'none';
     gameUI.style.display = 'block';
     controlsUI.style.display = 'flex';
+    setTimeout(() => uiWarp.refresh(), 0);
     
     updateAllTexts();
-    soundManager.engine.play().catch(()=>{}); 
+    soundManager.startEngine();
+    soundManager.startGameMusic();
     gameState = 'PLAYING';
 }
 
@@ -1333,7 +1670,8 @@ function calculatePercentage() {
 
 function triggerWin() {
     isWinAnimating = true;
-    soundManager.engine.pause();
+    soundManager.stopEngine();
+    soundManager.playSFX('victory');
     velocityX = 0; velocityZ = 0;
     lastGridX = -1; lastGridZ = -1;
     createFireworks(player.position.x, player.position.y, player.position.z);
@@ -1345,8 +1683,8 @@ function playerDied(reasonText, forceGameOver = false) {
 
     if (forceGameOver) lives = 0; else lives--;
 
-    soundManager.playSFX('explosion');
-    soundManager.engine.pause();
+    soundManager.playSFX('death');
+    soundManager.stopEngine();
 
     let momX = velocityX;
     let momZ = velocityZ;
@@ -1358,7 +1696,12 @@ function playerDied(reasonText, forceGameOver = false) {
         const explodePart = (part, isBody = false) => {
             if (!part) return;
             const clone = part.clone();
-            
+
+            // Vír patří k roztočené vrtuli — na padajícím úlomku nedává smysl.
+            const wakes = [];
+            clone.traverse((child) => { if (child.userData.isRotorWake) wakes.push(child); });
+            wakes.forEach((wake) => wake.removeFromParent());
+
             if (isBody) {
                 const r1 = clone.getObjectByName('Rotor_one');
                 const r2 = clone.getObjectByName('Rotor_two');
@@ -1426,7 +1769,7 @@ function playerDied(reasonText, forceGameOver = false) {
             velocityX = 0;
             velocityZ = 0;
             player.visible = true; isRespawning = false;
-            soundManager.engine.play().catch(()=>{}); 
+            soundManager.startEngine();
         }
     }, 1000);
 }
@@ -1447,63 +1790,85 @@ function getCellsBetween(x0, z0, x1, z1) {
 }
 
 function fillEnclosedAreas(finishedTrail) {
-    const visited = new Set(); const regions = [];
-    const trailSet = new Set(finishedTrail.map(p => `${p.x},${p.z}`));
+    regionIds.fill(-1);
+    trailMask.fill(0);
+    for (const p of finishedTrail) trailMask[getIndex(p.x, p.z)] = 1;
 
+    let regionCount = 0;
     for (let z = 0; z < GRID_SIZE; z++) {
         for (let x = 0; x < GRID_SIZE; x++) {
-            if (grid[z][x] === 0 && !visited.has(`${x},${z}`)) {
-                const currentRegion = []; const queue = [{x, z}];
-                visited.add(`${x},${z}`);
-                let touchesTrail = false; 
+            const start = getIndex(x, z);
+            if (grid[z][x] !== 0 || regionIds[start] !== -1) continue;
 
-                while (queue.length > 0) {
-                    const curr = queue.shift(); currentRegion.push(curr);
-                    for (let dx = -1; dx <= 1; dx++) {
-                        for (let dz = -1; dz <= 1; dz++) {
-                            if (trailSet.has(`${curr.x + dx},${curr.z + dz}`)) touchesTrail = true;
-                        }
-                    }
-                    const dirs = [[0,1], [1,0], [0,-1], [-1,0]];
-                    for (let d of dirs) {
-                        const nx = curr.x + d[0]; const nz = curr.z + d[1];
-                        if (nx >= 0 && nx < GRID_SIZE && nz >= 0 && nz < GRID_SIZE) {
-                            if (grid[nz][nx] === 0 && !visited.has(`${nx},${nz}`)) {
-                                visited.add(`${nx},${nz}`); queue.push({x: nx, z: nz});
-                            }
+            const id = regionCount++;
+            regionTouchesTrail[id] = 0;
+            regionHasEnemy[id] = 0;
+
+            let head = 0, tail = 0;
+            floodQueue[tail++] = start;
+            regionIds[start] = id;
+
+            while (head < tail) {
+                const cell = floodQueue[head++];
+                const cx = cell % GRID_SIZE;
+                const cz = (cell - cx) / GRID_SIZE;
+
+                if (!regionTouchesTrail[id]) {
+                    for (let dz = -1; dz <= 1 && !regionTouchesTrail[id]; dz++) {
+                        const nz = cz + dz;
+                        if (nz < 0 || nz >= GRID_SIZE) continue;
+                        for (let dx = -1; dx <= 1; dx++) {
+                            const nx = cx + dx;
+                            if (nx < 0 || nx >= GRID_SIZE) continue;
+                            if (trailMask[nz * GRID_SIZE + nx]) { regionTouchesTrail[id] = 1; break; }
                         }
                     }
                 }
-                regions.push({ points: currentRegion, touchesTrail: touchesTrail });
+
+                if (cz + 1 < GRID_SIZE && grid[cz + 1][cx] === 0 && regionIds[cell + GRID_SIZE] === -1) { regionIds[cell + GRID_SIZE] = id; floodQueue[tail++] = cell + GRID_SIZE; }
+                if (cz - 1 >= 0 && grid[cz - 1][cx] === 0 && regionIds[cell - GRID_SIZE] === -1) { regionIds[cell - GRID_SIZE] = id; floodQueue[tail++] = cell - GRID_SIZE; }
+                if (cx + 1 < GRID_SIZE && grid[cz][cx + 1] === 0 && regionIds[cell + 1] === -1) { regionIds[cell + 1] = id; floodQueue[tail++] = cell + 1; }
+                if (cx - 1 >= 0 && grid[cz][cx - 1] === 0 && regionIds[cell - 1] === -1) { regionIds[cell - 1] = id; floodQueue[tail++] = cell - 1; }
             }
         }
     }
 
-    const enemyPositions = enemies.map(e => ({
-        x: Math.floor((e.mesh.position.x + (ARENA_SIZE / 2)) / CELL_SIZE),
-        z: Math.floor((e.mesh.position.z + (ARENA_SIZE / 2)) / CELL_SIZE)
-    }));
+    for (const enemy of enemies) {
+        const ex = Math.floor((enemy.mesh.position.x + (ARENA_SIZE / 2)) / CELL_SIZE);
+        const ez = Math.floor((enemy.mesh.position.z + (ARENA_SIZE / 2)) / CELL_SIZE);
+        if (ex < 0 || ex >= GRID_SIZE || ez < 0 || ez >= GRID_SIZE) continue;
+        const id = regionIds[getIndex(ex, ez)];
+        if (id !== -1) regionHasEnemy[id] = 1;
+    }
 
-    for (let regionObj of regions) {
-        if (!regionObj.touchesTrail) continue;
-        let hasEnemy = false; const regionSet = new Set(regionObj.points.map(p => `${p.x},${p.z}`));
-        for (let ep of enemyPositions) {
-            if (regionSet.has(`${ep.x},${ep.z}`)) { hasEnemy = true; break; }
-        }
-        if (!hasEnemy) {
-            for (let point of regionObj.points) createBlock(point.x, point.z, colorWall, 1, true);
+    let capturedCells = 0;
+    for (let z = 1; z < GRID_SIZE - 1; z++) {
+        for (let x = 1; x < GRID_SIZE - 1; x++) {
+            const id = regionIds[getIndex(x, z)];
+            if (id !== -1 && regionTouchesTrail[id] && !regionHasEnemy[id]) {
+                createBlock(x, z, colorWall, 1, true);
+                capturedCells++;
+            }
         }
     }
+    if (capturedCells > 0) soundManager.playSFX('capture');
     calculatePercentage();
 }
 
 // --- 8. HERNÍ SMYČKA ---
 const clock = new THREE.Clock();
-const cameraOffset = new THREE.Vector3(0, 8, 10); 
-const cameraLookAtTarget = new THREE.Vector3(0, 0, 0); 
+const cameraOffset = new THREE.Vector3(0, 8, 10);
+const cameraLookAtTarget = new THREE.Vector3(0, 0, 0);
 let lastGridX = -1; let lastGridZ = -1;
 
+// Znovupoužité vektory — v herní smyčce se nesmí alokovat
+const menuCameraPos = new THREE.Vector3(0, 4, 15);
+const menuLookAt = new THREE.Vector3(0, 4, 0);
+const cameraTargetPos = new THREE.Vector3();
+
 updateAllTexts(); 
+
+uiWarp.setEnabled(settingsConfig.crt !== false);
 
 function animate() {
     requestAnimationFrame(animate);
@@ -1536,16 +1901,16 @@ function animate() {
         if (rotor1) rotor1.rotation.y += 15 * delta;
         if (rotor2) rotor2.rotation.y -= 15 * delta;
 
-        camera.position.lerp(new THREE.Vector3(0, 4, 15), 0.05);
-        cameraLookAtTarget.lerp(new THREE.Vector3(0, 4, 0), 0.08);
+        camera.position.lerp(menuCameraPos, 0.05);
+        cameraLookAtTarget.lerp(menuLookAt, 0.08);
         camera.lookAt(cameraLookAtTarget);
-        renderer.render(scene, camera);
+        crt.render(scene, camera);
         return;
     }
 
     // --- STAV HRY ---
     if (isPaused || isGameOver) {
-        renderer.render(scene, camera);
+        crt.render(scene, camera);
         return;
     }
     
@@ -1562,36 +1927,37 @@ function animate() {
             itemSpawnTimer += delta;
             if (itemSpawnTimer > 4 + Math.random() * 2) { 
                 itemSpawnTimer = 0;
-                const validSpots = []; const margin = 4; const minDistance = 15; const safeRadius = 2; 
+                const margin = 4; const minDistance = 15; const safeRadius = 2;
+                const span = GRID_SIZE - 2 * margin;
+                const MAX_TRIES = 150;
 
-                for (let z = margin; z < GRID_SIZE - margin; z++) {
-                    for (let x = margin; x < GRID_SIZE - margin; x++) {
-                        if (grid[z][x] === 1) {
-                            let isSurrounded = true;
-                            for (let dz = -safeRadius; dz <= safeRadius; dz++) {
-                                for (let dx = -safeRadius; dx <= safeRadius; dx++) {
-                                    if (grid[z + dz] && grid[z + dz][x + dx] !== 1) { isSurrounded = false; break; }
-                                }
-                                if (!isSurrounded) break;
-                            }
-                            if (!isSurrounded) continue;
-                            let isFarEnough = true;
-                            for (let activeMine of activeItems) {
-                                const mineGridX = Math.floor((activeMine.mesh.position.x + (ARENA_SIZE / 2)) / CELL_SIZE);
-                                const mineGridZ = Math.floor((activeMine.mesh.position.z + (ARENA_SIZE / 2)) / CELL_SIZE);
-                                const dx = x - mineGridX; const dz = z - mineGridZ;
-                                if (Math.sqrt(dx*dx + dz*dz) < minDistance) { isFarEnough = false; break; }
-                            }
-                            if (isFarEnough) validSpots.push({ x, z });
+                // Náhodné vzorkování místo skenu celé mřížky — dřív to bylo ~200 000 operací v jednom framu
+                for (let tries = 0; tries < MAX_TRIES; tries++) {
+                    const x = margin + Math.floor(Math.random() * span);
+                    const z = margin + Math.floor(Math.random() * span);
+                    if (grid[z][x] !== 1) continue;
+
+                    let isSurrounded = true;
+                    for (let dz = -safeRadius; dz <= safeRadius && isSurrounded; dz++) {
+                        for (let dx = -safeRadius; dx <= safeRadius; dx++) {
+                            if (grid[z + dz] && grid[z + dz][x + dx] !== 1) { isSurrounded = false; break; }
                         }
                     }
-                }
-                
-                if (validSpots.length > 0) {
-                    const spot = validSpots[Math.floor(Math.random() * validSpots.length)];
-                    const worldX = spot.x * CELL_SIZE - (ARENA_SIZE / 2) + (CELL_SIZE / 2);
-                    const worldZ = spot.z * CELL_SIZE - (ARENA_SIZE / 2) + (CELL_SIZE / 2);
+                    if (!isSurrounded) continue;
+
+                    let isFarEnough = true;
+                    for (let activeMine of activeItems) {
+                        const mineGridX = Math.floor((activeMine.mesh.position.x + (ARENA_SIZE / 2)) / CELL_SIZE);
+                        const mineGridZ = Math.floor((activeMine.mesh.position.z + (ARENA_SIZE / 2)) / CELL_SIZE);
+                        const dx = x - mineGridX; const dz = z - mineGridZ;
+                        if (dx * dx + dz * dz < minDistance * minDistance) { isFarEnough = false; break; }
+                    }
+                    if (!isFarEnough) continue;
+
+                    const worldX = x * CELL_SIZE - (ARENA_SIZE / 2) + (CELL_SIZE / 2);
+                    const worldZ = z * CELL_SIZE - (ARENA_SIZE / 2) + (CELL_SIZE / 2);
                     activeItems.push(new Item(worldX, worldZ));
+                    break;
                 }
             }
         }
@@ -1602,16 +1968,26 @@ function animate() {
         }
     }
 
-    for (let i = particles.length - 1; i >= 0; i--) {
-        const p = particles[i]; p.life -= delta;
-        if (p.life <= 0) { scene.remove(p.mesh); particles.splice(i, 1); } 
-        else {
-            p.mesh.position.x += p.vx * delta; p.mesh.position.y += p.vy * delta; p.mesh.position.z += p.vz * delta;
-            p.vy -= 25 * delta; 
-            p.mesh.rotation.x += 10 * delta; p.mesh.rotation.y += 10 * delta;
-            p.mesh.scale.setScalar(p.life); 
-        }
+    let particlesDirty = false;
+    for (let i = 0; i < MAX_PARTICLES; i++) {
+        const p = particles[i];
+        if (!p.active) continue;
+        particlesDirty = true;
+
+        p.life -= delta;
+        if (p.life <= 0) { releaseParticle(i); continue; }
+
+        p.x += p.vx * delta; p.y += p.vy * delta; p.z += p.vz * delta;
+        p.vy -= 25 * delta;
+        p.rot += 10 * delta;
+
+        particleDummy.position.set(p.x, p.y, p.z);
+        particleDummy.rotation.set(p.rot, p.rot, 0);
+        particleDummy.scale.setScalar(p.life);
+        particleDummy.updateMatrix();
+        particlesMesh.setMatrixAt(i, particleDummy.matrix);
     }
+    if (particlesDirty) particlesMesh.instanceMatrix.needsUpdate = true;
     
     for (let i = droneDebris.length - 1; i >= 0; i--) {
         const d = droneDebris[i]; d.life -= delta;
@@ -1664,6 +2040,9 @@ function animate() {
 
         velocityX = THREE.MathUtils.lerp(velocityX, targetVelX, accelerationRate * delta);
         velocityZ = THREE.MathUtils.lerp(velocityZ, targetVelZ, accelerationRate * delta);
+
+        const speed = Math.hypot(velocityX, velocityZ);
+        soundManager.setEngineSpeed(Math.min(speed / BASE_MAX_SPEED, 1));
 
         player.position.x += velocityX * delta; player.position.z += velocityZ * delta;
 
@@ -1733,7 +2112,8 @@ function animate() {
     const targetZ = (player.position.z * trackingFactor) + 12;
     const targetY = 10; 
     
-    camera.position.lerp(new THREE.Vector3(targetX, targetY, targetZ), 0.05);
+    cameraTargetPos.set(targetX, targetY, targetZ);
+    camera.position.lerp(cameraTargetPos, 0.05);
     cameraLookAtTarget.lerp(player.position, 0.08);
     camera.lookAt(cameraLookAtTarget);
 
@@ -1745,7 +2125,7 @@ function animate() {
         camera.position.z += (Math.random() - 0.5) * shakeIntensity;
     }
 
-    renderer.render(scene, camera);
+    crt.render(scene, camera);
 }
 
 animate();

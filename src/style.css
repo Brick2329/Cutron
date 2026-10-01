@@ -1,2 +1,76 @@
-body { margin: 0; overflow: hidden; background-color: #ffffff; }
-canvas { display: block; }
+body {
+    margin: 0;
+    overflow: hidden;
+    background-color: #04040f;
+}
+
+canvas {
+    display: block;
+}
+
+/* Jemné řádkování přes celou stránku, aby UI patřilo do stejné obrazovky jako hra */
+body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9999;
+    background: repeating-linear-gradient(
+        to bottom,
+        rgba(0, 0, 0, 0) 0px,
+        rgba(0, 0, 0, 0) 2px,
+        rgba(0, 0, 0, 0.14) 3px,
+        rgba(0, 0, 0, 0.14) 3px
+    );
+}
+
+/* Logo hlavního menu: přeliv putující přes písmena, jak to dělávala scénová intra */
+.logo-sweep {
+    background: linear-gradient(100deg,
+        #00d9ff 0%, #ffffff 18%, #00d9ff 36%,
+        #0066aa 54%, #00d9ff 72%, #ffffff 90%, #00d9ff 100%);
+    background-size: 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    filter: drop-shadow(0 0 6px rgba(0, 217, 255, 0.55));
+    animation: logo-sweep 7s linear infinite;
+}
+
+@keyframes logo-sweep {
+    from { background-position: 300% 0; }
+    to { background-position: 0 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .logo-sweep { animation: none; background-position: 150% 0; }
+}
+
+/* Posuvníky hlasitosti v arkádovém stylu */
+input[type='range'] {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 10px;
+    background: #12203a;
+    border: 2px solid #00d9ff;
+    outline: none;
+}
+
+input[type='range']::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 22px;
+    background: #00d9ff;
+    cursor: pointer;
+}
+
+input[type='range']::-moz-range-thumb {
+    width: 16px;
+    height: 22px;
+    border: none;
+    border-radius: 0;
+    background: #00d9ff;
+    cursor: pointer;
+}

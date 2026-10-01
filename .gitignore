@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Pomůcky pro lokální spouštění – obsahují absolutní cesty k tomuto počítači
+run-dev.sh
+.claude/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
