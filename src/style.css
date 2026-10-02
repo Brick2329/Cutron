@@ -2,6 +2,11 @@ body {
     margin: 0;
     overflow: hidden;
     background-color: #04040f;
+    /* prst má ovládat hru, ne posouvat a přibližovat stránku */
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
 }
 
 canvas {

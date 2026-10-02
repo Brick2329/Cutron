@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { createAudioEngine } from './audio.js';
 import { createCrtPipeline, createUiWarp } from './crt.js';
 import './style.css';
@@ -9,6 +10,10 @@ const fontLink = document.createElement('link');
 fontLink.href = 'https://fonts.googleapis.com/css2?family=VT323&display=swap';
 fontLink.rel = 'stylesheet';
 document.head.appendChild(fontLink);
+
+// Dotykové zařízení poznáme podle vstupu, ne podle řetězce prohlížeče —
+// ten se dá snadno podvrhnout a na hybridních noteboocích lže.
+const isTouchDevice = window.matchMedia('(pointer: coarse)').matches && navigator.maxTouchPoints > 0;
 
 // --- PALETA UI (drží se stejných barev jako scéna) ---
 const UI = {
@@ -71,15 +76,17 @@ function applyHoverFill(el, color, withSound = true) {
 }
 
 // --- KONFIGURACE LEVELŮ ---
+// Cíl je všude 80 %. Dřív rostl až na 90 %, což spolu s přibývajícími
+// minami dělalo poslední levely prakticky neprůchozí.
 const LEVELS_CONFIG = [
-    { id: 1, target: 80, time: 60, bouncers: 2, eaters: 0, bombers: 0, maxMines: 2 },
-    { id: 2, target: 80, time: 70, bouncers: 2, eaters: 1, bombers: 0, maxMines: 3 },
-    { id: 3, target: 80, time: 80, bouncers: 3, eaters: 1, bombers: 0, maxMines: 3 },
-    { id: 4, target: 80, time: 90, bouncers: 2, eaters: 2, bombers: 1, maxMines: 4 },
-    { id: 5, target: 80, time: 100, bouncers: 3, eaters: 2, bombers: 1, maxMines: 5 },
-    { id: 6, target: 85, time: 110, bouncers: 4, eaters: 2, bombers: 1, maxMines: 5 },
-    { id: 7, target: 85, time: 120, bouncers: 3, eaters: 3, bombers: 2, maxMines: 6 },
-    { id: 8, target: 90, time: 130, bouncers: 4, eaters: 3, bombers: 2, maxMines: 7 }
+    { id: 1, target: 80, time: 70, bouncers: 2, eaters: 0, bombers: 0, maxMines: 2 },
+    { id: 2, target: 80, time: 80, bouncers: 2, eaters: 1, bombers: 0, maxMines: 2 },
+    { id: 3, target: 80, time: 90, bouncers: 3, eaters: 1, bombers: 0, maxMines: 3 },
+    { id: 4, target: 80, time: 100, bouncers: 2, eaters: 2, bombers: 1, maxMines: 3 },
+    { id: 5, target: 80, time: 110, bouncers: 3, eaters: 2, bombers: 1, maxMines: 3 },
+    { id: 6, target: 80, time: 125, bouncers: 3, eaters: 2, bombers: 1, maxMines: 4 },
+    { id: 7, target: 80, time: 140, bouncers: 3, eaters: 3, bombers: 2, maxMines: 4 },
+    { id: 8, target: 80, time: 150, bouncers: 4, eaters: 3, bombers: 2, maxMines: 4 }
 ];
 
 // --- LOKALIZACE (CZ / EN) ---
@@ -237,7 +244,8 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
-const CRT_CURVATURE = 0.32;
+// Na telefonu je obrazovka úzká a silné vyklenutí by ukrojilo moc hrací plochy.
+const CRT_CURVATURE = isTouchDevice ? 0.16 : 0.32;
 
 const crt = createCrtPipeline(renderer, {
     enabled: settingsConfig.crt !== false,
@@ -323,7 +331,7 @@ function createMenuButton(textKey, onClick) {
         fontFamily: UI.font,
         padding: '12px 18px', fontSize: '26px', lineHeight: '1.3', cursor: 'pointer',
         backgroundColor: 'transparent', color: UI.cyan, border: `2px solid ${UI.cyan}`,
-        borderRadius: '0', marginBottom: '16px', width: '340px',
+        borderRadius: '0', marginBottom: '16px', width: 'min(340px, 82vw)',
         letterSpacing: '1px', textTransform: 'uppercase', transition: 'none'
     });
     applyHoverFill(btn, UI.cyan);
@@ -345,6 +353,8 @@ const btnSettings = createMenuButton('settings', () => {
     settingsUI.style.display = 'flex';
 });
 const btnDuel = createMenuButton('duel', () => startDuel());
+// souboj dvou hráčů na jedné klávesnici nelze na telefonu ovládat
+if (isTouchDevice) btnDuel.style.display = 'none';
 const btnHelp = createMenuButton('help', () => openHelp());
 
 menuContent.appendChild(btnCampaign);
@@ -386,7 +396,7 @@ levelSelectUI.appendChild(btnBackMenu);
 // --- OBSAH NÁPOVĚDY (chování odpovídá třídám Bouncer/Eater/Bomber/Fireball/Item) ---
 const HELP_ENTRIES = [
     {
-        shape: 'sphere', color: '#ff3355',
+        shape: 'sphere', color: '#eaf0ff',
         cz: { name: 'Bouncer', desc: 'Nejrychlejší z nepřátel. Odráží se od zabrané plochy i od stěn arény. Zabije tě při dotyku — a stejně tak, když sám narazí do tvé rozdělané brázdy. Zabrané území nepoškozuje.' },
         en: { name: 'Bouncer', desc: 'The fastest enemy. Bounces off captured ground and arena walls. It kills you on contact — and also when it runs into your unfinished trail. It does not damage captured territory.' }
     },
@@ -613,8 +623,10 @@ uiContainer.appendChild(gameUI);
 
 const hudContainer = document.createElement('div');
 Object.assign(hudContainer.style, {
-    position: 'absolute', top: '4.5%', left: '4.5%', display: 'flex', gap: '22px',
-    fontFamily: UI.font, fontSize: '26px', color: UI.text, letterSpacing: '1px',
+    position: 'absolute', top: '4.5%', left: '4.5%', display: 'flex',
+    gap: isTouchDevice ? '12px' : '22px',
+    fontFamily: UI.font, fontSize: isTouchDevice ? '18px' : '26px',
+    color: UI.text, letterSpacing: '1px',
     textShadow: '2px 2px 0 rgba(0,0,0,0.9)'
 });
 gameUI.appendChild(hudContainer);
@@ -626,7 +638,7 @@ function createHudItem(iconName, iconColor) {
 
     const icon = document.createElement('span');
     icon.style.display = 'flex';
-    icon.innerHTML = pixelIcon(iconName, iconColor, 3);
+    icon.innerHTML = pixelIcon(iconName, iconColor, isTouchDevice ? 2 : 3);
 
     const value = document.createElement('span');
     wrap.append(icon, value);
@@ -712,9 +724,10 @@ uiWarp.register(topButtons);
 const pauseBtn = document.createElement('button');
 pauseBtn.dataset.textKey = 'pause';
 Object.assign(pauseBtn.style, {
-    padding: '10px 20px', cursor: 'pointer',
+    padding: isTouchDevice ? '6px 10px' : '10px 20px', cursor: 'pointer',
     pointerEvents: 'auto', backgroundColor: 'transparent',
-    fontFamily: UI.font, fontSize: '20px', border: `2px solid ${UI.cyan}`, color: UI.cyan, borderRadius: '0'
+    fontFamily: UI.font, fontSize: isTouchDevice ? '15px' : '20px',
+    border: `2px solid ${UI.cyan}`, color: UI.cyan, borderRadius: '0'
 });
 applyHoverFill(pauseBtn, UI.cyan);
 topButtons.appendChild(pauseBtn);
@@ -722,9 +735,10 @@ topButtons.appendChild(pauseBtn);
 const quitBtn = document.createElement('button');
 quitBtn.dataset.textKey = 'quit';
 Object.assign(quitBtn.style, {
-    padding: '10px 20px', cursor: 'pointer',
+    padding: isTouchDevice ? '6px 10px' : '10px 20px', cursor: 'pointer',
     pointerEvents: 'auto', backgroundColor: 'transparent',
-    fontFamily: UI.font, fontSize: '20px', border: `2px solid ${UI.danger}`, color: UI.danger, borderRadius: '0'
+    fontFamily: UI.font, fontSize: isTouchDevice ? '15px' : '20px',
+    border: `2px solid ${UI.danger}`, color: UI.danger, borderRadius: '0'
 });
 applyHoverFill(quitBtn, UI.danger);
 quitBtn.onclick = (e) => {
@@ -798,6 +812,10 @@ const duelControlsTwo = createControlGroup(['\u2191', '\u2190', '\u2193', '\u219
 controlsUI.append(campaignControls, duelControlsOne, duelControlsTwo);
 
 function refreshControlsHint() {
+    if (isTouchDevice) {
+        controlsUI.style.display = 'none';
+        return;
+    }
     const duel = gameMode === 'duel';
     campaignControls.style.display = duel ? 'none' : 'flex';
     duelControlsOne.style.display = duel ? 'flex' : 'none';
@@ -805,6 +823,95 @@ function refreshControlsHint() {
 }
 refreshControlsHint();
 
+
+// --- DOTYKOVÝ JOYSTICK ---
+// Plovoucí: objeví se tam, kde hráč přiloží prst, takže nevadí ani různé
+// velikosti a poměry stran telefonů a nemusí se trefovat do pevného místa.
+const JOYSTICK_RADIUS = 58;
+
+const joystick = { active: false, pointerId: null, x: 0, z: 0 };
+
+const joystickBase = document.createElement('div');
+Object.assign(joystickBase.style, {
+    position: 'absolute', width: `${JOYSTICK_RADIUS * 2}px`, height: `${JOYSTICK_RADIUS * 2}px`,
+    marginLeft: `-${JOYSTICK_RADIUS}px`, marginTop: `-${JOYSTICK_RADIUS}px`,
+    border: `2px solid ${UI.cyan}`, borderRadius: '50%',
+    backgroundColor: 'rgba(0, 217, 255, 0.08)', display: 'none', pointerEvents: 'none', zIndex: '50'
+});
+
+const joystickKnob = document.createElement('div');
+Object.assign(joystickKnob.style, {
+    position: 'absolute', width: '52px', height: '52px', marginLeft: '-26px', marginTop: '-26px',
+    border: `2px solid ${UI.cyan}`, borderRadius: '50%',
+    backgroundColor: 'rgba(0, 217, 255, 0.35)', display: 'none', pointerEvents: 'none', zIndex: '51'
+});
+
+uiContainer.append(joystickBase, joystickKnob);
+
+function showJoystickAt(clientX, clientY) {
+    joystickBase.style.left = `${clientX}px`;
+    joystickBase.style.top = `${clientY}px`;
+    joystickBase.style.display = 'block';
+    moveJoystickKnob(clientX, clientY, clientX, clientY);
+}
+
+function moveJoystickKnob(baseX, baseY, clientX, clientY) {
+    let dx = clientX - baseX;
+    let dy = clientY - baseY;
+    const distance = Math.hypot(dx, dy);
+    if (distance > JOYSTICK_RADIUS) {
+        dx = (dx / distance) * JOYSTICK_RADIUS;
+        dy = (dy / distance) * JOYSTICK_RADIUS;
+    }
+
+    joystickKnob.style.left = `${baseX + dx}px`;
+    joystickKnob.style.top = `${baseY + dy}px`;
+    joystickKnob.style.display = 'block';
+
+    // malá mrtvá zóna, aby dron nedrfal při pouhém položení prstu
+    const strength = Math.min(distance / JOYSTICK_RADIUS, 1);
+    if (strength < 0.18 || distance === 0) {
+        joystick.x = 0;
+        joystick.z = 0;
+        return;
+    }
+    joystick.x = (dx / Math.max(distance, 1)) * strength;
+    joystick.z = (dy / Math.max(distance, 1)) * strength;
+}
+
+function hideJoystick() {
+    joystick.active = false;
+    joystick.pointerId = null;
+    joystick.x = 0;
+    joystick.z = 0;
+    joystickBase.style.display = 'none';
+    joystickKnob.style.display = 'none';
+}
+
+let joystickBaseX = 0;
+let joystickBaseY = 0;
+
+window.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'touch' || gameState !== 'PLAYING' || isPaused || isGameOver) return;
+    if (e.target instanceof Element && e.target.closest('button')) return;
+
+    joystick.active = true;
+    joystick.pointerId = e.pointerId;
+    joystickBaseX = e.clientX;
+    joystickBaseY = e.clientY;
+    showJoystickAt(e.clientX, e.clientY);
+});
+
+window.addEventListener('pointermove', (e) => {
+    if (!joystick.active || e.pointerId !== joystick.pointerId) return;
+    moveJoystickKnob(joystickBaseX, joystickBaseY, e.clientX, e.clientY);
+});
+
+const endJoystick = (e) => {
+    if (joystick.active && e.pointerId === joystick.pointerId) hideJoystick();
+};
+window.addEventListener('pointerup', endJoystick);
+window.addEventListener('pointercancel', endJoystick);
 
 // --- UPDATE TEXTŮ A MENU ---
 function updateAllTexts() {
@@ -1528,6 +1635,131 @@ const MINE_COLOR_URGENT = 0xf2ffd0;
 const mineEdgeMaterial = new THREE.LineBasicMaterial({ color: MINE_COLOR });
 const mineRingGeometry = new THREE.RingGeometry(MINE_RADIUS * 0.78, MINE_RADIUS * 1.15, 8);
 
+// --- SRDCE: život navíc ---
+// Model se skládá ze stejné pixelové mřížky jako ikona života v HUD, jen
+// vytažené do hloubky. Slučuje se do jediné geometrie, takže i s obrysem
+// jsou to dvě vykreslovací volání bez ohledu na počet kostiček.
+function createVoxelHeartGeometry() {
+    const rows = ICON_PIXELS.heart;
+    const pixel = CELL_SIZE * 0.32;
+    const depth = pixel * 3;
+    const width = rows[0].length;
+    const boxes = [];
+
+    rows.forEach((row, y) => {
+        for (let x = 0; x < width; x++) {
+            if (row[x] !== 'X') continue;
+            const box = new THREE.BoxGeometry(pixel, pixel, depth);
+            box.translate(
+                (x - (width - 1) / 2) * pixel,
+                ((rows.length - 1) / 2 - y) * pixel,
+                0
+            );
+            boxes.push(box);
+        }
+    });
+
+    return mergeGeometries(boxes);
+}
+
+const heartGeometry = createVoxelHeartGeometry();
+const heartMaterial = new THREE.MeshBasicMaterial({ color: 0xe8174a });
+// obrys obrácenou skořápkou — černá silueta kolem celého tvaru
+const heartOutlineMaterial = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.BackSide });
+
+const MAX_LIVES = 5;
+const HEART_SPAWN_INTERVAL = 30;
+const activeHearts = [];
+let heartSpawnTimer = 0;
+
+class HeartPickup {
+    constructor(x, z) {
+        this.isDead = false;
+        this.bob = Math.random() * Math.PI * 2;
+
+        this.mesh = new THREE.Group();
+        this.mesh.position.set(x, BLOCK_HEIGHT + 0.5, z);
+
+        const outline = new THREE.Mesh(heartGeometry, heartOutlineMaterial);
+        outline.scale.setScalar(1.22);
+        this.mesh.add(outline, new THREE.Mesh(heartGeometry, heartMaterial));
+
+        sceneGroup.add(this.mesh);
+    }
+
+    remove() {
+        sceneGroup.remove(this.mesh);
+        this.isDead = true;
+    }
+
+    update(delta) {
+        if (this.isDead) return;
+
+        this.mesh.rotation.y += 1.5 * delta;
+        this.bob += delta * 2.2;
+        this.mesh.position.y = BLOCK_HEIGHT + 0.5 + Math.sin(this.bob) * 0.09;
+
+        const gridX = Math.floor((this.mesh.position.x + (ARENA_SIZE / 2)) / CELL_SIZE);
+        const gridZ = Math.floor((this.mesh.position.z + (ARENA_SIZE / 2)) / CELL_SIZE);
+        if (grid[gridZ] && !isCapturedCell(grid[gridZ][gridX])) {
+            this.remove();
+            return;
+        }
+
+        for (const target of players) {
+            if (target.isRespawning || target.lives >= MAX_LIVES) continue;
+            const dx = target.group.position.x - this.mesh.position.x;
+            const dz = target.group.position.z - this.mesh.position.z;
+            if (Math.hypot(dx, dz) < CELL_SIZE * 2.4) {
+                target.lives++;
+                soundManager.playSFX('pickup');
+                createExplosion(this.mesh.position.x, this.mesh.position.y, this.mesh.position.z, 24, [0xe8174a, 0xff7da0]);
+                this.remove();
+                updateHUD();
+                return;
+            }
+        }
+    }
+}
+
+// Hledání volného místa uvnitř zabraného území. Používá náhodné vzorkování,
+// protože sken celé mřížky dělal znatelný záškub.
+function findSpawnSpot(minDistance, avoid) {
+    const margin = 4;
+    const safeRadius = 2;
+    const span = GRID_SIZE - 2 * margin;
+
+    for (let tries = 0; tries < 150; tries++) {
+        const x = margin + Math.floor(Math.random() * span);
+        const z = margin + Math.floor(Math.random() * span);
+        if (!isCapturedCell(grid[z][x])) continue;
+
+        let isSurrounded = true;
+        for (let dz = -safeRadius; dz <= safeRadius && isSurrounded; dz++) {
+            for (let dx = -safeRadius; dx <= safeRadius; dx++) {
+                if (grid[z + dz] && !isCapturedCell(grid[z + dz][x + dx])) { isSurrounded = false; break; }
+            }
+        }
+        if (!isSurrounded) continue;
+
+        let isFarEnough = true;
+        for (const other of avoid) {
+            const otherX = Math.floor((other.mesh.position.x + (ARENA_SIZE / 2)) / CELL_SIZE);
+            const otherZ = Math.floor((other.mesh.position.z + (ARENA_SIZE / 2)) / CELL_SIZE);
+            const dx = x - otherX;
+            const dz = z - otherZ;
+            if (dx * dx + dz * dz < minDistance * minDistance) { isFarEnough = false; break; }
+        }
+        if (!isFarEnough) continue;
+
+        return {
+            x: x * CELL_SIZE - (ARENA_SIZE / 2) + (CELL_SIZE / 2),
+            z: z * CELL_SIZE - (ARENA_SIZE / 2) + (CELL_SIZE / 2)
+        };
+    }
+    return null;
+}
+
 const activeItems = [];
 let itemSpawnTimer = 0;
 
@@ -1701,9 +1933,11 @@ const ENEMY_VISUAL_SCALE = 1.6;
 class Bouncer {
     constructor(x, z) {
         this.radius = CELL_SIZE * 0.48; this.colRadius = CELL_SIZE * 0.4;
+        // Bílá je jediná barva, která se nebije ani s červeným a modrým územím
+        // hráčů v souboji, ani s azurovou arénou a ostatními nepřáteli v kampani.
         this.mesh = new THREE.Mesh(
             new THREE.SphereGeometry(this.radius * ENEMY_VISUAL_SCALE, 12, 12),
-            new THREE.MeshBasicMaterial({ color: 0xff3355 })
+            new THREE.MeshBasicMaterial({ color: 0xeaf0ff })
         );
         this.mesh.position.set(x, BLOCK_HEIGHT / 2, z); this.mesh.castShadow = true;
         sceneGroup.add(this.mesh);
@@ -1947,6 +2181,9 @@ function clearSceneEntities() {
     fireballs.length = 0;
     activeItems.forEach(i => sceneGroup.remove(i.mesh));
     activeItems.length = 0;
+    activeHearts.forEach(h => sceneGroup.remove(h.mesh));
+    activeHearts.length = 0;
+    heartSpawnTimer = 0;
     for (let i = 0; i < MAX_PARTICLES; i++) {
         if (particles[i].active) releaseParticle(i);
     }
@@ -2385,25 +2622,42 @@ function updatePlayerMovement(player, delta) {
     const mineCaptured = capturedValue(player.index);
     const mineTrail = trailValue(player.index);
 
-    let targetVelX = 0;
-    let targetVelZ = 0;
+    // Obě osy se čtou nezávisle, takže W+A dá šikmý let.
+    let inputX = 0;
+    let inputZ = 0;
+    const keys = player.keys;
+    if (keys) {
+        if (pressedKeys.has(keys.up)) inputZ -= 1;
+        if (pressedKeys.has(keys.down)) inputZ += 1;
+        if (pressedKeys.has(keys.left)) inputX -= 1;
+        if (pressedKeys.has(keys.right)) inputX += 1;
+    }
+
+    // na mobilu nahrazuje klávesnici joystick
+    if (joystick.active && player.index === 0) {
+        inputX = joystick.x;
+        inputZ = joystick.z;
+    }
 
     // zamezení nechtěné otočky o 180° při kreslení stopy
-    let blockUp = false, blockDown = false, blockLeft = false, blockRight = false;
     if (player.trail.length > 0) {
-        if (player.lastTrailDir === 'z') blockUp = true;
-        if (player.lastTrailDir === '-z') blockDown = true;
-        if (player.lastTrailDir === 'x') blockLeft = true;
-        if (player.lastTrailDir === '-x') blockRight = true;
+        if (player.lastTrailDir === 'z' && inputZ < 0) inputZ = 0;
+        if (player.lastTrailDir === '-z' && inputZ > 0) inputZ = 0;
+        if (player.lastTrailDir === 'x' && inputX < 0) inputX = 0;
+        if (player.lastTrailDir === '-x' && inputX > 0) inputX = 0;
     } else {
         player.lastTrailDir = null;
     }
 
-    const keys = player.keys;
-    if (pressedKeys.has(keys.up) && !blockUp) targetVelZ = -currentMaxSpeed;
-    else if (pressedKeys.has(keys.down) && !blockDown) targetVelZ = currentMaxSpeed;
-    else if (pressedKeys.has(keys.left) && !blockLeft) targetVelX = -currentMaxSpeed;
-    else if (pressedKeys.has(keys.right) && !blockRight) targetVelX = currentMaxSpeed;
+    // bez normalizace by byl šikmý let o 41 % rychlejší než rovný
+    const inputLength = Math.hypot(inputX, inputZ);
+    if (inputLength > 1) {
+        inputX /= inputLength;
+        inputZ /= inputLength;
+    }
+
+    const targetVelX = inputX * currentMaxSpeed;
+    const targetVelZ = inputZ * currentMaxSpeed;
 
     player.velocityX = THREE.MathUtils.lerp(player.velocityX, targetVelX, accelerationRate * delta);
     player.velocityZ = THREE.MathUtils.lerp(player.velocityZ, targetVelZ, accelerationRate * delta);
@@ -2508,7 +2762,15 @@ function updateCamera() {
     if (!hero) return;
     const trackingFactor = 0.9;
     const heroPos = hero.group.position;
-    cameraTargetPos.set(heroPos.x * trackingFactor, 10, heroPos.z * trackingFactor + 12);
+    // Na výšku se kamera jen mírně oddálí. Sleduje hráče, takže celá aréna
+    // v záběru být nemusí — silné oddálení dělalo dron nečitelně malý.
+    const portrait = THREE.MathUtils.clamp(1 / camera.aspect, 1, 1.18);
+    // Čím užší obrazovka, tím víc se kamera sklání shora — pohled zepředu
+    // nechával na vysokém displeji spodní polovinu prázdnou.
+    const topDown = THREE.MathUtils.clamp((1 / camera.aspect - 1) / 1.2, 0, 1);
+    const height = THREE.MathUtils.lerp(10, 15, topDown) * portrait;
+    const depth = THREE.MathUtils.lerp(12, 6, topDown) * portrait;
+    cameraTargetPos.set(heroPos.x * trackingFactor, height, heroPos.z * trackingFactor + depth);
     camera.position.lerp(cameraTargetPos, 0.05);
     cameraLookAtTarget.lerp(heroPos, 0.08);
     camera.lookAt(cameraLookAtTarget);
@@ -2557,8 +2819,9 @@ function animate() {
             // Hloubka je navázaná na výchylku do stran: po krajích se dron vyklání
             // dopředu, uprostřed couvne za menu, aby nepřekrýval tlačítka.
             const swing = Math.sin(tMenu * 0.8);
+            const reach = isTouchDevice ? 4 : 7;
             menuDrone.model.position.set(
-                swing * 7,
+                swing * reach,
                 3.4 + Math.sin(tMenu * 1.1) * 1.5,
                 -4 + Math.abs(swing) * 7
             );
@@ -2599,41 +2862,27 @@ function animate() {
     if (!isWinAnimating && matchClockRunning()) {
         if (activeItems.length < maxActiveMines) {
             itemSpawnTimer += delta;
-            if (itemSpawnTimer > 4 + Math.random() * 2) { 
+            if (itemSpawnTimer > 4 + Math.random() * 2) {
                 itemSpawnTimer = 0;
-                const margin = 4; const minDistance = 15; const safeRadius = 2;
-                const span = GRID_SIZE - 2 * margin;
-                const MAX_TRIES = 150;
-
-                // Náhodné vzorkování místo skenu celé mřížky — dřív to bylo ~200 000 operací v jednom framu
-                for (let tries = 0; tries < MAX_TRIES; tries++) {
-                    const x = margin + Math.floor(Math.random() * span);
-                    const z = margin + Math.floor(Math.random() * span);
-                    if (!isCapturedCell(grid[z][x])) continue;
-
-                    let isSurrounded = true;
-                    for (let dz = -safeRadius; dz <= safeRadius && isSurrounded; dz++) {
-                        for (let dx = -safeRadius; dx <= safeRadius; dx++) {
-                            if (grid[z + dz] && !isCapturedCell(grid[z + dz][x + dx])) { isSurrounded = false; break; }
-                        }
-                    }
-                    if (!isSurrounded) continue;
-
-                    let isFarEnough = true;
-                    for (let activeMine of activeItems) {
-                        const mineGridX = Math.floor((activeMine.mesh.position.x + (ARENA_SIZE / 2)) / CELL_SIZE);
-                        const mineGridZ = Math.floor((activeMine.mesh.position.z + (ARENA_SIZE / 2)) / CELL_SIZE);
-                        const dx = x - mineGridX; const dz = z - mineGridZ;
-                        if (dx * dx + dz * dz < minDistance * minDistance) { isFarEnough = false; break; }
-                    }
-                    if (!isFarEnough) continue;
-
-                    const worldX = x * CELL_SIZE - (ARENA_SIZE / 2) + (CELL_SIZE / 2);
-                    const worldZ = z * CELL_SIZE - (ARENA_SIZE / 2) + (CELL_SIZE / 2);
-                    activeItems.push(new Item(worldX, worldZ));
-                    break;
-                }
+                const spot = findSpawnSpot(15, activeItems);
+                if (spot) activeItems.push(new Item(spot.x, spot.z));
             }
+        }
+
+        // Srdce je vzácné — objeví se jen občas, po jednom, a jen když
+        // má vůbec komu přidat život.
+        heartSpawnTimer += delta;
+        if (heartSpawnTimer > HEART_SPAWN_INTERVAL && activeHearts.length === 0) {
+            heartSpawnTimer = 0;
+            if (players.some((p) => p.lives < MAX_LIVES)) {
+                const spot = findSpawnSpot(10, activeItems);
+                if (spot) activeHearts.push(new HeartPickup(spot.x, spot.z));
+            }
+        }
+
+        for (let i = activeHearts.length - 1; i >= 0; i--) {
+            activeHearts[i].update(delta);
+            if (activeHearts[i].isDead) activeHearts.splice(i, 1);
         }
 
         for (let i = activeItems.length - 1; i >= 0; i--) {
