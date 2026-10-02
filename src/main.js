@@ -109,7 +109,18 @@ const i18n = {
         duelWins: "%s vyhrává",
         duelDraw: "Remíza!",
         reasonRivalTrail: "Soupeř ti přejel nedokončenou brázdu!",
-        helpTitle: "Nepřátelé",
+        helpTitle: "Nápověda",
+        helpGoal: "Cíl hry",
+        helpGoalText: "Leť dronem po volné ploše a kresli brázdu. Jakmile ji uzavřeš o vlastní území nebo o okraj arény, zabereš všechno uvnitř. V kampani potřebuješ 80 % plochy, v souboji víc než soupeř. Nikdy nenajížděj do vlastní nedokončené brázdy.",
+        helpControls: "Ovládání",
+        helpMoveOne: "Pohyb — hráč 1",
+        helpMoveTwo: "Pohyb — hráč 2 (jen 1v1)",
+        helpDiagonal: "Dvě klávesy naráz = šikmý let.",
+        helpTouch: "Na telefonu se dron ovládá dotykem — joystick se objeví tam, kde přiložíš prst.",
+        helpObjects: "Předměty",
+        helpEnemies: "Nepřátelé",
+        heartName: "Srdce",
+        heartDesc: "Objeví se jen zřídka a jen na zabrané ploše. Sebráním získáš život navíc, nejvýš však pět. Zmizí, pokud pod ním plocha přestane být tvoje.",
         selectLevel: "Výběr Levelu",
         back: "Zpět",
         level: "Level",
@@ -162,7 +173,18 @@ const i18n = {
         duelWins: "%s wins",
         duelDraw: "Draw!",
         reasonRivalTrail: "Your rival ran over your unfinished trail!",
-        helpTitle: "Enemies",
+        helpTitle: "Help",
+        helpGoal: "Objective",
+        helpGoalText: "Fly across open ground and draw a trail. Close it against your own territory or the arena edge and everything inside becomes yours. The campaign needs 80 % of the arena, a duel just needs more than your rival. Never run into your own unfinished trail.",
+        helpControls: "Controls",
+        helpMoveOne: "Move — player 1",
+        helpMoveTwo: "Move — player 2 (1v1 only)",
+        helpDiagonal: "Hold two keys at once to fly diagonally.",
+        helpTouch: "On a phone the drone follows your touch — the joystick appears wherever you put your finger.",
+        helpObjects: "Objects",
+        helpEnemies: "Enemies",
+        heartName: "Heart",
+        heartDesc: "Appears rarely and only on captured ground. Picking it up grants an extra life, up to five. It vanishes if the ground beneath it stops being yours.",
         selectLevel: "Select Level",
         back: "Back",
         level: "Level",
@@ -396,29 +418,33 @@ levelSelectUI.appendChild(btnBackMenu);
 // --- OBSAH NÁPOVĚDY (chování odpovídá třídám Bouncer/Eater/Bomber/Fireball/Item) ---
 const HELP_ENTRIES = [
     {
-        shape: 'sphere', color: '#eaf0ff',
+        section: 'enemies', shape: 'sphere', color: '#eaf0ff',
         cz: { name: 'Bouncer', desc: 'Nejrychlejší z nepřátel. Odráží se od zabrané plochy i od stěn arény. Zabije tě při dotyku — a stejně tak, když sám narazí do tvé rozdělané brázdy. Zabrané území nepoškozuje.' },
         en: { name: 'Bouncer', desc: 'The fastest enemy. Bounces off captured ground and arena walls. It kills you on contact — and also when it runs into your unfinished trail. It does not damage captured territory.' }
     },
     {
-        shape: 'poly', color: '#c44dff',
+        section: 'enemies', shape: 'poly', color: '#c44dff',
         cz: { name: 'Eater', desc: 'Pomalejší než Bouncer, zato při každém nárazu do zabrané plochy z ní ukousne čtverec 5×5 polí. Postupně ti tak ubírá už získané území.' },
         en: { name: 'Eater', desc: 'Slower than the Bouncer, but every time it hits captured ground it bites out a 5×5 square. It steadily eats away the territory you already won.' }
     },
     {
-        shape: 'diamond', color: '#1a1a24', stroke: '#ff6a00',
+        section: 'enemies', shape: 'diamond', color: '#1a1a24', stroke: '#ff6a00',
         cz: { name: 'Bomber', desc: 'Nejpomalejší nepřítel. Každých 5 sekund vystřelí ohnivou kouli náhodným směrem. Sám území nepoškozuje — to za něj obstarají jeho střely.' },
         en: { name: 'Bomber', desc: 'The slowest enemy. Every 5 seconds it fires a fireball in a random direction. It does no damage itself — its projectiles do the work.' }
     },
     {
-        shape: 'sphere', color: '#ffb020',
+        section: 'enemies', shape: 'sphere', color: '#ffb020',
         cz: { name: 'Ohnivá koule', desc: 'Letí rovně a velmi rychle. Při nárazu do zabrané plochy vybuchne a vypálí v ní kruh o poloměru 5 polí. Když zasáhne tebe nebo tvou brázdu, přijdeš o život.' },
         en: { name: 'Fireball', desc: 'Flies straight and very fast. On hitting captured ground it explodes and burns out a circle with a radius of 5 cells. If it hits you or your trail, you lose a life.' }
     },
     {
-        shape: 'mine', color: '#c6ff2e',
+        section: 'objects', shape: 'mine', color: '#c6ff2e',
         cz: { name: 'Mina', desc: 'Objeví se uvnitř zabraného území. Jakmile se přiblížíš na 4 pole, spustí se odpočet 5 sekund — pak vybuchne, zničí kruh o poloměru 7 polí a v jeho dosahu zabije i tebe.' },
         en: { name: 'Mine', desc: 'Appears inside captured territory. Come within 4 cells and a 5 second countdown starts — then it explodes, destroying a circle with a radius of 7 cells and killing you if you are inside it.' }
+    },
+    {
+        section: 'objects', shape: 'heart', color: '#e8174a',
+        useKeys: { name: 'heartName', desc: 'heartDesc' }
     }
 ];
 
@@ -431,6 +457,8 @@ function enemyShapeSvg(entry) {
         body = `<polygon points="22,6 36,14 36,30 22,38 8,30 8,14" fill="${entry.color}"${stroke}/>`;
     } else if (entry.shape === 'diamond') {
         body = `<polygon points="22,5 39,22 22,39 5,22" fill="${entry.color}"${stroke}/>`;
+    } else if (entry.shape === 'heart') {
+        return pixelIcon('heart', entry.color, 5);
     } else {
         // osmiboké tělo se svítícím prstencem, jak mina vypadá ve hře
         const octagon = '32.2,26.2 26.2,32.2 17.8,32.2 11.8,26.2 11.8,17.8 17.8,11.8 26.2,11.8 32.2,17.8';
@@ -463,40 +491,99 @@ Object.assign(helpList.style, {
 });
 helpUI.appendChild(helpList);
 
+function createHelpHeading(textKey) {
+    const heading = document.createElement('div');
+    Object.assign(heading.style, {
+        fontFamily: UI.font, fontSize: '26px', color: UI.amber,
+        letterSpacing: '2px', textTransform: 'uppercase',
+        marginTop: '14px', marginBottom: '2px'
+    });
+    heading.textContent = t(textKey);
+    return heading;
+}
+
+function createHelpCard() {
+    const card = document.createElement('div');
+    Object.assign(card.style, {
+        border: `2px solid ${UI.panelEdge}`, padding: '16px 18px',
+        display: 'flex', flexDirection: 'column', gap: '12px'
+    });
+    return card;
+}
+
+function createHelpText(text, color = UI.text, size = '19px') {
+    const el = document.createElement('div');
+    Object.assign(el.style, { fontFamily: UI.font, fontSize: size, color, lineHeight: '1.45' });
+    el.textContent = text;
+    return el;
+}
+
+function createHelpKeyRow(labels, color, labelKey) {
+    const row = document.createElement('div');
+    Object.assign(row.style, { display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' });
+
+    const keys = document.createElement('div');
+    Object.assign(keys.style, { display: 'flex', gap: '5px' });
+    labels.forEach((label) => keys.appendChild(createKeyElement(label, color)));
+
+    row.append(keys, createHelpText(t(labelKey), color));
+    return row;
+}
+
 function openHelp() {
     setTimeout(() => uiWarp.refresh(), 0);
     menuUI.style.display = 'none';
     helpUI.style.display = 'flex';
     helpList.innerHTML = '';
 
-    for (const entry of HELP_ENTRIES) {
-        const row = document.createElement('div');
-        Object.assign(row.style, {
-            display: 'flex', gap: '18px', alignItems: 'flex-start',
-            border: `2px solid ${UI.panelEdge}`, padding: '16px 18px'
-        });
+    // --- cíl hry ---
+    helpList.appendChild(createHelpHeading('helpGoal'));
+    const goal = createHelpCard();
+    goal.appendChild(createHelpText(t('helpGoalText')));
+    helpList.appendChild(goal);
 
-        const icon = document.createElement('div');
-        icon.style.flex = '0 0 auto';
-        icon.innerHTML = enemyShapeSvg(entry);
+    // --- ovládání ---
+    helpList.appendChild(createHelpHeading('helpControls'));
+    const controls = createHelpCard();
+    if (isTouchDevice) {
+        controls.appendChild(createHelpText(t('helpTouch')));
+    } else {
+        controls.appendChild(createHelpKeyRow(['W', 'A', 'S', 'D'], UI.cyan, 'helpMoveOne'));
+        controls.appendChild(createHelpKeyRow(['\u2191', '\u2190', '\u2193', '\u2192'], '#00b4ff', 'helpMoveTwo'));
+        controls.appendChild(createHelpText(t('helpDiagonal'), UI.dim));
+    }
+    helpList.appendChild(controls);
 
-        const text = document.createElement('div');
-        const name = document.createElement('div');
-        Object.assign(name.style, {
-            fontFamily: UI.font, fontSize: '24px', color: entry.stroke || entry.color,
-            marginBottom: '6px', letterSpacing: '1px'
-        });
-        name.textContent = entry[lang].name;
+    // --- předměty a nepřátelé ---
+    for (const sectionKey of ['objects', 'enemies']) {
+        helpList.appendChild(createHelpHeading(sectionKey === 'objects' ? 'helpObjects' : 'helpEnemies'));
 
-        const desc = document.createElement('div');
-        Object.assign(desc.style, {
-            fontFamily: UI.font, fontSize: '19px', color: UI.text, lineHeight: '1.45'
-        });
-        desc.textContent = entry[lang].desc;
+        for (const entry of HELP_ENTRIES.filter((e) => e.section === sectionKey)) {
+            const row = createHelpCard();
+            row.style.flexDirection = 'row';
+            row.style.gap = '18px';
+            row.style.alignItems = 'flex-start';
 
-        text.append(name, desc);
-        row.append(icon, text);
-        helpList.appendChild(row);
+            const icon = document.createElement('div');
+            icon.style.flex = '0 0 auto';
+            icon.innerHTML = enemyShapeSvg(entry);
+
+            const text = document.createElement('div');
+            const labels = entry.useKeys
+                ? { name: t(entry.useKeys.name), desc: t(entry.useKeys.desc) }
+                : entry[lang];
+
+            const name = document.createElement('div');
+            Object.assign(name.style, {
+                fontFamily: UI.font, fontSize: '24px', color: entry.stroke || entry.color,
+                marginBottom: '6px', letterSpacing: '1px'
+            });
+            name.textContent = labels.name;
+
+            text.append(name, createHelpText(labels.desc));
+            row.append(icon, text);
+            helpList.appendChild(row);
+        }
     }
 }
 
@@ -1639,38 +1726,64 @@ const mineRingGeometry = new THREE.RingGeometry(MINE_RADIUS * 0.78, MINE_RADIUS 
 // Model se skládá ze stejné pixelové mřížky jako ikona života v HUD, jen
 // vytažené do hloubky. Slučuje se do jediné geometrie, takže i s obrysem
 // jsou to dvě vykreslovací volání bez ohledu na počet kostiček.
-function createVoxelHeartGeometry() {
+// Model srdce se skládá jen z VNĚJŠÍCH stěn. Kdyby se slepily celé kostky,
+// zůstaly by uvnitř stěny mezi sousedy a černá skořápka by je prosvítala —
+// obrys by pak lemoval každou kostičku místo obvodu celého srdce.
+// `expand` nafoukne kostičky na místě, čímž vznikne skořápka pro obrys.
+function createVoxelHeartGeometry(expand = 0) {
     const rows = ICON_PIXELS.heart;
-    const pixel = CELL_SIZE * 0.32;
-    const depth = pixel * 3;
     const width = rows[0].length;
-    const boxes = [];
+    const height = rows.length;
+    const pixel = CELL_SIZE * 0.32;
+    const half = pixel / 2 + expand;
+    const halfDepth = pixel * 1.5 + expand;
 
-    rows.forEach((row, y) => {
+    const filled = (x, y) => x >= 0 && x < width && y >= 0 && y < height && rows[y][x] === 'X';
+
+    const positions = [];
+    const quad = (a, b, c, d) => positions.push(...a, ...b, ...c, ...a, ...c, ...d);
+
+    for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {
-            if (row[x] !== 'X') continue;
-            const box = new THREE.BoxGeometry(pixel, pixel, depth);
-            box.translate(
-                (x - (width - 1) / 2) * pixel,
-                ((rows.length - 1) / 2 - y) * pixel,
-                0
-            );
-            boxes.push(box);
-        }
-    });
+            if (!filled(x, y)) continue;
 
-    return mergeGeometries(boxes);
+            const centerX = (x - (width - 1) / 2) * pixel;
+            const centerY = ((height - 1) / 2 - y) * pixel;
+            const x0 = centerX - half, x1 = centerX + half;
+            const y0 = centerY - half, y1 = centerY + half;
+            const z0 = -halfDepth, z1 = halfDepth;
+
+            // čelo a záda má každá kostička vždy
+            quad([x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]);
+            quad([x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0]);
+
+            // boky jen tam, kde soused chybí
+            if (!filled(x + 1, y)) quad([x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1]);
+            if (!filled(x - 1, y)) quad([x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]);
+            if (!filled(x, y + 1)) quad([x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]);
+            if (!filled(x, y - 1)) quad([x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0]);
+        }
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.computeVertexNormals();
+    return geometry;
 }
 
 const heartGeometry = createVoxelHeartGeometry();
-const heartMaterial = new THREE.MeshBasicMaterial({ color: 0xe8174a });
+const heartOutlineGeometry = createVoxelHeartGeometry(CELL_SIZE * 0.085);
+const heartMaterial = new THREE.MeshBasicMaterial({ color: 0xe8174a, side: THREE.DoubleSide });
 // obrys obrácenou skořápkou — černá silueta kolem celého tvaru
 const heartOutlineMaterial = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.BackSide });
 
 const MAX_LIVES = 5;
-const HEART_SPAWN_INTERVAL = 30;
+// Miny padají každé 4–6 s, srdce má být vzácnost — proto desítky sekund
+// a pokaždé jinak, aby se nedalo odpočítávat.
+const randomHeartDelay = () => 40 + Math.random() * 50;
 const activeHearts = [];
 let heartSpawnTimer = 0;
+let heartSpawnDelay = randomHeartDelay();
 
 class HeartPickup {
     constructor(x, z) {
@@ -1680,8 +1793,7 @@ class HeartPickup {
         this.mesh = new THREE.Group();
         this.mesh.position.set(x, BLOCK_HEIGHT + 0.5, z);
 
-        const outline = new THREE.Mesh(heartGeometry, heartOutlineMaterial);
-        outline.scale.setScalar(1.22);
+        const outline = new THREE.Mesh(heartOutlineGeometry, heartOutlineMaterial);
         this.mesh.add(outline, new THREE.Mesh(heartGeometry, heartMaterial));
 
         sceneGroup.add(this.mesh);
@@ -2184,6 +2296,7 @@ function clearSceneEntities() {
     activeHearts.forEach(h => sceneGroup.remove(h.mesh));
     activeHearts.length = 0;
     heartSpawnTimer = 0;
+    heartSpawnDelay = randomHeartDelay();
     for (let i = 0; i < MAX_PARTICLES; i++) {
         if (particles[i].active) releaseParticle(i);
     }
@@ -2872,8 +2985,9 @@ function animate() {
         // Srdce je vzácné — objeví se jen občas, po jednom, a jen když
         // má vůbec komu přidat život.
         heartSpawnTimer += delta;
-        if (heartSpawnTimer > HEART_SPAWN_INTERVAL && activeHearts.length === 0) {
+        if (heartSpawnTimer > heartSpawnDelay && activeHearts.length === 0) {
             heartSpawnTimer = 0;
+            heartSpawnDelay = randomHeartDelay();
             if (players.some((p) => p.lives < MAX_LIVES)) {
                 const spot = findSpawnSpot(10, activeItems);
                 if (spot) activeHearts.push(new HeartPickup(spot.x, spot.z));
