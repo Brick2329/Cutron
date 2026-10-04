@@ -101,6 +101,9 @@ const i18n = {
         settings: "Nastavení",
         help: "Nápověda",
         duel: "1v1",
+        duelNoTouch: "Souboj 1v1 se hraje ve dvou na jedné klávesnici — jeden na WASD, druhý na šipkách. Na dotykovém zařízení ho hrát nelze.",
+        touchJoystick: "Ovládání: Joystick",
+        touchDpad: "Ovládání: Šipky",
         playerOne: "Hráč 1",
         playerTwo: "Hráč 2",
         duelByArea: "ovládl nadpoloviční většinu plochy!",
@@ -129,7 +132,7 @@ const i18n = {
         resume: "POKRAČOVAT",
         quit: "UKONČIT",
         pausedTitle: "HRA POZASTAVENA",
-        pausedSub: "Klikni na obrazovku pro pokračování",
+        pausedSub: "Klikni na obrazovku nebo stiskni Esc",
         victory: "VÍTĚZSTVÍ!",
         gameOver: "KONEC HRY",
         captured: "Zabral jsi %s% území.",
@@ -165,6 +168,9 @@ const i18n = {
         settings: "Settings",
         help: "Help",
         duel: "1v1",
+        duelNoTouch: "A 1v1 duel is played by two people on one keyboard — one on WASD, the other on the arrow keys. It cannot be played on a touch device.",
+        touchJoystick: "Controls: Joystick",
+        touchDpad: "Controls: D-pad",
         playerOne: "Player 1",
         playerTwo: "Player 2",
         duelByArea: "took more than half of the arena!",
@@ -193,7 +199,7 @@ const i18n = {
         resume: "RESUME",
         quit: "QUIT",
         pausedTitle: "GAME PAUSED",
-        pausedSub: "Click screen to resume",
+        pausedSub: "Click the screen or press Esc",
         victory: "VICTORY!",
         gameOver: "GAME OVER",
         captured: "You captured %s% of the area.",
@@ -233,6 +239,10 @@ let settingsConfig = JSON.parse(localStorage.getItem('cutronSettings')) || { sfx
 
 function saveProgress() { localStorage.setItem('cutronProgress', JSON.stringify(progress)); }
 function saveSettings() { localStorage.setItem('cutronSettings', JSON.stringify(settingsConfig)); }
+
+// Deklarováno takto brzy schválně: přepínač v nastavení se vytváří dřív
+// než zbytek dotykového ovládání a potřebuje tuhle funkci už tam.
+const touchControlMode = () => (settingsConfig.touchControl === 'dpad' ? 'dpad' : 'joystick');
 
 let currentLevelId = 1;
 let currentLevelConfig = null;
@@ -353,7 +363,7 @@ function createMenuButton(textKey, onClick) {
         fontFamily: UI.font,
         padding: '12px 18px', fontSize: '26px', lineHeight: '1.3', cursor: 'pointer',
         backgroundColor: 'transparent', color: UI.cyan, border: `2px solid ${UI.cyan}`,
-        borderRadius: '0', marginBottom: '16px', width: 'min(340px, 82vw)',
+        borderRadius: '0', marginBottom: '16px', width: 'min(330px, 76vw)',
         letterSpacing: '1px', textTransform: 'uppercase', transition: 'none'
     });
     applyHoverFill(btn, UI.cyan);
@@ -374,9 +384,14 @@ const btnSettings = createMenuButton('settings', () => {
     menuUI.style.display = 'none';
     settingsUI.style.display = 'flex';
 });
-const btnDuel = createMenuButton('duel', () => startDuel());
-// souboj dvou hráčů na jedné klávesnici nelze na telefonu ovládat
-if (isTouchDevice) btnDuel.style.display = 'none';
+const btnDuel = createMenuButton('duel', () => {
+    // tlačítko zůstává i na telefonu, ale vysvětlí, proč mód nejde spustit
+    if (isTouchDevice) {
+        showNotice('duelNoTouch');
+        return;
+    }
+    startDuel();
+});
 const btnHelp = createMenuButton('help', () => openHelp());
 
 menuContent.appendChild(btnCampaign);
@@ -403,8 +418,11 @@ levelSelectTitle.dataset.textKey = 'selectLevel';
 levelSelectUI.appendChild(levelSelectTitle);
 
 const levelGrid = document.createElement('div');
+const LEVEL_TILE = isTouchDevice ? 70 : 120;
 Object.assign(levelGrid.style, {
-    display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '25px'
+    display: 'grid',
+    gridTemplateColumns: 'repeat(4, 1fr)',
+    gap: isTouchDevice ? '10px' : '25px'
 });
 levelSelectUI.appendChild(levelGrid);
 
@@ -680,6 +698,17 @@ const btnReset = createMenuButton('resetProgress', () => {
 btnReset.style.marginTop = '30px';
 settingsUI.appendChild(btnReset);
 
+const btnTouchControl = createMenuButton('touchJoystick', () => {
+    settingsConfig.touchControl = touchControlMode() === 'dpad' ? 'joystick' : 'dpad';
+    saveSettings();
+    btnTouchControl.dataset.textKey = touchControlMode() === 'dpad' ? 'touchDpad' : 'touchJoystick';
+    btnTouchControl.innerText = t(btnTouchControl.dataset.textKey);
+    refreshTouchControls();
+});
+btnTouchControl.dataset.textKey = touchControlMode() === 'dpad' ? 'touchDpad' : 'touchJoystick';
+btnTouchControl.style.marginTop = '10px';
+if (isTouchDevice) settingsUI.appendChild(btnTouchControl);
+
 const btnCrt = createMenuButton('crtOn', () => {
     const enabled = !crt.isEnabled();
     crt.setEnabled(enabled);
@@ -911,6 +940,32 @@ function refreshControlsHint() {
 refreshControlsHint();
 
 
+// Krátká hláška uprostřed obrazovky. Používá se tam, kde by plná
+// překryvná obrazovka byla zbytečně těžkopádná.
+const noticeBox = document.createElement('div');
+Object.assign(noticeBox.style, {
+    position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+    width: 'min(430px, 80vw)', padding: '20px 22px',
+    backgroundColor: UI.overlay, border: `2px solid ${UI.cyan}`,
+    fontFamily: UI.font, fontSize: '19px', color: UI.text, lineHeight: '1.5',
+    textAlign: 'center', display: 'none', pointerEvents: 'auto', zIndex: '200'
+});
+uiContainer.appendChild(noticeBox);
+
+let noticeTimer = null;
+
+function showNotice(textKey) {
+    noticeBox.textContent = t(textKey);
+    noticeBox.style.display = 'block';
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(() => { noticeBox.style.display = 'none'; }, 5000);
+}
+
+noticeBox.addEventListener('pointerdown', () => {
+    clearTimeout(noticeTimer);
+    noticeBox.style.display = 'none';
+});
+
 // --- DOTYKOVÝ JOYSTICK ---
 // Plovoucí: objeví se tam, kde hráč přiloží prst, takže nevadí ani různé
 // velikosti a poměry stran telefonů a nemusí se trefovat do pevného místa.
@@ -943,27 +998,34 @@ function showJoystickAt(clientX, clientY) {
 }
 
 function moveJoystickKnob(baseX, baseY, clientX, clientY) {
-    let dx = clientX - baseX;
-    let dy = clientY - baseY;
+    const dx = clientX - baseX;
+    const dy = clientY - baseY;
     const distance = Math.hypot(dx, dy);
-    if (distance > JOYSTICK_RADIUS) {
-        dx = (dx / distance) * JOYSTICK_RADIUS;
-        dy = (dy / distance) * JOYSTICK_RADIUS;
-    }
 
-    joystickKnob.style.left = `${baseX + dx}px`;
-    joystickKnob.style.top = `${baseY + dy}px`;
+    // knoflík se zastaví na kraji kroužku, prst může jít dál
+    const clamped = Math.min(distance, JOYSTICK_RADIUS);
+    if (distance > 0) {
+        joystickKnob.style.left = `${baseX + (dx / distance) * clamped}px`;
+        joystickKnob.style.top = `${baseY + (dy / distance) * clamped}px`;
+    } else {
+        joystickKnob.style.left = `${baseX}px`;
+        joystickKnob.style.top = `${baseY}px`;
+    }
     joystickKnob.style.display = 'block';
 
     // malá mrtvá zóna, aby dron nedrfal při pouhém položení prstu
-    const strength = Math.min(distance / JOYSTICK_RADIUS, 1);
-    if (strength < 0.18 || distance === 0) {
+    if (distance === 0 || distance / JOYSTICK_RADIUS < 0.18) {
         joystick.x = 0;
         joystick.z = 0;
         return;
     }
-    joystick.x = (dx / Math.max(distance, 1)) * strength;
-    joystick.z = (dy / Math.max(distance, 1)) * strength;
+
+    // Směr se bere z nezkráceného tahu a síla se zvlášť zastropuje na jedničce.
+    // Dřív se směr dělil původní vzdáleností až po zkrácení, takže čím dál
+    // od kroužku prst byl, tím pomaleji dron letěl — přesně naopak, než má.
+    const strength = Math.min(distance / JOYSTICK_RADIUS, 1);
+    joystick.x = (dx / distance) * strength;
+    joystick.z = (dy / distance) * strength;
 }
 
 function hideJoystick() {
@@ -980,6 +1042,7 @@ let joystickBaseY = 0;
 
 window.addEventListener('pointerdown', (e) => {
     if (e.pointerType !== 'touch' || gameState !== 'PLAYING' || isPaused || isGameOver) return;
+    if (touchControlMode() !== 'joystick') return;
     if (e.target instanceof Element && e.target.closest('button')) return;
 
     joystick.active = true;
@@ -999,6 +1062,64 @@ const endJoystick = (e) => {
 };
 window.addEventListener('pointerup', endJoystick);
 window.addEventListener('pointercancel', endJoystick);
+
+// --- PEVNÉ DOTYKOVÉ ŠIPKY ---
+// Alternativa k plovoucímu joysticku pro hráče, kterým vyhovuje pevné místo.
+const dpad = { up: false, down: false, left: false, right: false };
+
+const dpadUI = document.createElement('div');
+Object.assign(dpadUI.style, {
+    position: 'absolute', left: '22px', bottom: '26px',
+    display: 'none', gridTemplateColumns: 'repeat(3, 62px)', gridTemplateRows: 'repeat(3, 62px)',
+    gap: '4px', pointerEvents: 'auto', zIndex: '60'
+});
+uiContainer.appendChild(dpadUI);
+
+function createDpadButton(label, direction, column, row) {
+    const button = document.createElement('div');
+    button.textContent = label;
+    Object.assign(button.style, {
+        gridColumn: String(column), gridRow: String(row),
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontFamily: UI.font, fontSize: '26px', color: UI.cyan,
+        border: `2px solid ${UI.cyan}`, backgroundColor: 'rgba(0, 217, 255, 0.1)',
+        userSelect: 'none', touchAction: 'none'
+    });
+
+    const press = (active) => {
+        dpad[direction] = active;
+        button.style.backgroundColor = active ? 'rgba(0, 217, 255, 0.45)' : 'rgba(0, 217, 255, 0.1)';
+    };
+
+    button.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        press(true);
+        // zachycení prstu drží stisk i při sjetí mimo tlačítko;
+        // když se nepovede, směr i tak funguje
+        try { button.setPointerCapture(e.pointerId); } catch (err) { /* nevadí */ }
+    });
+    button.addEventListener('pointerup', () => press(false));
+    button.addEventListener('pointercancel', () => press(false));
+    button.addEventListener('pointerleave', () => press(false));
+    return button;
+}
+
+dpadUI.append(
+    createDpadButton('\u2191', 'up', 2, 1),
+    createDpadButton('\u2190', 'left', 1, 2),
+    createDpadButton('\u2192', 'right', 3, 2),
+    createDpadButton('\u2193', 'down', 2, 3)
+);
+
+function resetDpad() {
+    dpad.up = dpad.down = dpad.left = dpad.right = false;
+}
+
+function refreshTouchControls() {
+    const show = isTouchDevice && gameState === 'PLAYING' && touchControlMode() === 'dpad';
+    dpadUI.style.display = show ? 'grid' : 'none';
+    if (!show) resetDpad();
+}
 
 // --- UPDATE TEXTŮ A MENU ---
 function updateAllTexts() {
@@ -1020,7 +1141,7 @@ function openLevelSelect() {
         const box = document.createElement('div');
         
         Object.assign(box.style, {
-            width: '120px', height: '120px', display: 'flex', flexDirection: 'column',
+            width: `${LEVEL_TILE}px`, height: `${LEVEL_TILE}px`, display: 'flex', flexDirection: 'column',
             justifyContent: 'center', alignItems: 'center', borderRadius: '0',
             border: isUnlocked ? `2px solid ${UI.cyan}` : '2px solid #2b3a4a',
             backgroundColor: 'transparent',
@@ -1028,12 +1149,12 @@ function openLevelSelect() {
             color: isUnlocked ? UI.cyan : UI.dim
         });
 
-        box.innerHTML = `<div style="font-family: ${UI.font}; font-size: 42px;">${config.id}</div>`;
+        box.innerHTML = `<div style="font-family: ${UI.font}; font-size: ${isTouchDevice ? 26 : 42}px;">${config.id}</div>`;
         
         if (progress.scores[config.id]) {
-            box.innerHTML += `<div style="font-family: ${UI.font}; font-size: 18px; margin-top: 8px; color: inherit; display: flex; align-items: center; gap: 6px;">${pixelIcon('star')} ${progress.scores[config.id]}</div>`;
+            box.innerHTML += `<div style="font-family: ${UI.font}; font-size: ${isTouchDevice ? 11 : 18}px; margin-top: ${isTouchDevice ? 3 : 8}px; color: inherit; display: flex; align-items: center; gap: 4px;">${pixelIcon('star', 'currentColor', isTouchDevice ? 2 : 3)} ${progress.scores[config.id]}</div>`;
         } else if (!isUnlocked) {
-            box.innerHTML += `<div style="margin-top: 8px; display: flex; color: inherit;">${pixelIcon('lock')}</div>`;
+            box.innerHTML += `<div style="margin-top: ${isTouchDevice ? 3 : 8}px; display: flex; color: inherit;">${pixelIcon('lock', 'currentColor', isTouchDevice ? 2 : 3)}</div>`;
         }
 
         if (isUnlocked) {
@@ -1108,6 +1229,8 @@ function quitToMenu() {
     gameUI.style.display = 'none';
     levelSelectUI.style.display = 'none';
     duelHud.style.display = 'none';
+    dpadUI.style.display = 'none';
+    resetDpad();
     sceneGroup.visible = false;
     gameMode = 'campaign';
     winAnimationPlayer = null; 
@@ -1630,6 +1753,18 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('keyup', (e) => {
     const key = e.key.toLowerCase();
     if (TRACKED_KEYS.has(key)) pressedKeys.delete(key);
+});
+
+// Pauza klávesou. Escape prohlížeč nijak nepohlcuje (jen ukončí celou
+// obrazovku, pokud v ní hra je), takže funguje obojí.
+window.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' && e.code !== 'Space') return;
+    if (gameState !== 'PLAYING') return;
+
+    // mezerník by jinak zmáčkl zaměřené tlačítko nebo odroloval stránku
+    e.preventDefault();
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    togglePause();
 });
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -2335,6 +2470,8 @@ function finishMatchStart() {
     soundManager.startEngine();
     soundManager.startGameMusic();
     gameState = 'PLAYING';
+    // až teď, protože zobrazení šipek se řídí herním stavem
+    refreshTouchControls();
 }
 
 function startLevel(levelId) {
@@ -2746,10 +2883,17 @@ function updatePlayerMovement(player, delta) {
         if (pressedKeys.has(keys.right)) inputX += 1;
     }
 
-    // na mobilu nahrazuje klávesnici joystick
-    if (joystick.active && player.index === 0) {
-        inputX = joystick.x;
-        inputZ = joystick.z;
+    // na mobilu nahrazuje klávesnici joystick nebo pevné šipky
+    if (isTouchDevice && player.index === 0) {
+        if (touchControlMode() === 'dpad') {
+            if (dpad.up) inputZ -= 1;
+            if (dpad.down) inputZ += 1;
+            if (dpad.left) inputX -= 1;
+            if (dpad.right) inputX += 1;
+        } else if (joystick.active) {
+            inputX = joystick.x;
+            inputZ = joystick.z;
+        }
     }
 
     // zamezení nechtěné otočky o 180° při kreslení stopy
