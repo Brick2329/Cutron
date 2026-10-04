@@ -119,7 +119,8 @@ const i18n = {
         helpMoveOne: "Pohyb — hráč 1",
         helpMoveTwo: "Pohyb — hráč 2 (jen 1v1)",
         helpDiagonal: "Dvě klávesy naráz = šikmý let.",
-        helpTouch: "Na telefonu se dron ovládá dotykem — joystick se objeví tam, kde přiložíš prst.",
+        helpTouchDpad: "Dron ovládáš šipkami dole uprostřed obrazovky. V Nastavení se dá přepnout na plovoucí joystick.",
+        helpTouchJoystick: "Joystick se objeví tam, kde přiložíš prst. V Nastavení se dá přepnout na pevné šipky.",
         helpObjects: "Předměty",
         helpEnemies: "Nepřátelé",
         heartName: "Srdce",
@@ -186,7 +187,8 @@ const i18n = {
         helpMoveOne: "Move — player 1",
         helpMoveTwo: "Move — player 2 (1v1 only)",
         helpDiagonal: "Hold two keys at once to fly diagonally.",
-        helpTouch: "On a phone the drone follows your touch — the joystick appears wherever you put your finger.",
+        helpTouchDpad: "Steer with the arrows at the bottom of the screen. You can switch to a floating joystick in Settings.",
+        helpTouchJoystick: "The joystick appears wherever you put your finger. You can switch to fixed arrows in Settings.",
         helpObjects: "Objects",
         helpEnemies: "Enemies",
         heartName: "Heart",
@@ -242,7 +244,8 @@ function saveSettings() { localStorage.setItem('cutronSettings', JSON.stringify(
 
 // Deklarováno takto brzy schválně: přepínač v nastavení se vytváří dřív
 // než zbytek dotykového ovládání a potřebuje tuhle funkci už tam.
-const touchControlMode = () => (settingsConfig.touchControl === 'dpad' ? 'dpad' : 'joystick');
+// Výchozí jsou pevné šipky — na telefonu se ovládají líp než plovoucí joystick.
+const touchControlMode = () => (settingsConfig.touchControl === 'joystick' ? 'joystick' : 'dpad');
 
 let currentLevelId = 1;
 let currentLevelConfig = null;
@@ -564,7 +567,7 @@ function openHelp() {
     helpList.appendChild(createHelpHeading('helpControls'));
     const controls = createHelpCard();
     if (isTouchDevice) {
-        controls.appendChild(createHelpText(t('helpTouch')));
+        controls.appendChild(createHelpText(t(touchControlMode() === 'dpad' ? 'helpTouchDpad' : 'helpTouchJoystick')));
     } else {
         controls.appendChild(createHelpKeyRow(['W', 'A', 'S', 'D'], UI.cyan, 'helpMoveOne'));
         controls.appendChild(createHelpKeyRow(['\u2191', '\u2190', '\u2193', '\u2192'], '#00b4ff', 'helpMoveTwo'));
@@ -605,12 +608,30 @@ function openHelp() {
     }
 }
 
-const btnBackHelp = createMenuButton('back', () => {
+function closeHelp() {
     helpUI.style.display = 'none';
     menuUI.style.display = 'flex';
+}
+
+// Křížek zůstává nalepený nahoře, takže nápověda jde zavřít bez
+// rolování až na konec — na telefonu je seznam dlouhý.
+const helpClose = document.createElement('div');
+helpClose.textContent = '\u00d7';
+Object.assign(helpClose.style, {
+    position: 'fixed', top: '14px', right: '16px',
+    width: '46px', height: '46px', display: 'flex',
+    alignItems: 'center', justifyContent: 'center',
+    fontFamily: UI.font, fontSize: '34px', lineHeight: '1',
+    color: UI.cyan, border: `2px solid ${UI.cyan}`,
+    backgroundColor: 'rgba(4, 4, 15, 0.85)', cursor: 'pointer', zIndex: '120'
 });
-btnBackHelp.style.margin = '36px 0 0';
-helpUI.appendChild(btnBackHelp);
+helpClose.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    soundManager.playSFX('click');
+    closeHelp();
+});
+helpClose.addEventListener('touchend', (e) => e.preventDefault(), { passive: false });
+helpUI.appendChild(helpClose);
 
 // NASTAVENÍ UI
 const settingsUI = document.createElement('div');
@@ -952,19 +973,30 @@ Object.assign(noticeBox.style, {
 });
 uiContainer.appendChild(noticeBox);
 
-let noticeTimer = null;
+// Hláška nemizí sama — hráč ji musí stihnout přečíst a zavřít křížkem
+// nebo klepnutím kamkoli do ní.
+const noticeClose = document.createElement('div');
+noticeClose.textContent = '\u00d7';
+Object.assign(noticeClose.style, {
+    position: 'absolute', top: '4px', right: '12px',
+    fontFamily: UI.font, fontSize: '30px', lineHeight: '1', color: UI.cyan, cursor: 'pointer'
+});
+noticeBox.appendChild(noticeClose);
+
+const noticeText = document.createElement('div');
+noticeBox.appendChild(noticeText);
 
 function showNotice(textKey) {
-    noticeBox.textContent = t(textKey);
+    noticeText.textContent = t(textKey);
     noticeBox.style.display = 'block';
-    clearTimeout(noticeTimer);
-    noticeTimer = setTimeout(() => { noticeBox.style.display = 'none'; }, 5000);
 }
 
-noticeBox.addEventListener('pointerdown', () => {
-    clearTimeout(noticeTimer);
+const hideNotice = (e) => {
+    e.preventDefault();
     noticeBox.style.display = 'none';
-});
+};
+noticeBox.addEventListener('pointerdown', hideNotice);
+noticeBox.addEventListener('touchend', (e) => e.preventDefault(), { passive: false });
 
 // --- DOTYKOVÝ JOYSTICK ---
 // Plovoucí: objeví se tam, kde hráč přiloží prst, takže nevadí ani různé
@@ -1063,13 +1095,20 @@ const endJoystick = (e) => {
 window.addEventListener('pointerup', endJoystick);
 window.addEventListener('pointercancel', endJoystick);
 
+// Safari na iOS nerespektuje zákaz zvětšování ve viewportu. Tohle pokrývá
+// zbylé cesty, kterými se stránka dá přiblížit: dvojklik a gesto štípnutím.
+document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
+['gesturestart', 'gesturechange', 'gestureend'].forEach((name) => {
+    document.addEventListener(name, (e) => e.preventDefault(), { passive: false });
+});
+
 // --- PEVNÉ DOTYKOVÉ ŠIPKY ---
 // Alternativa k plovoucímu joysticku pro hráče, kterým vyhovuje pevné místo.
 const dpad = { up: false, down: false, left: false, right: false };
 
 const dpadUI = document.createElement('div');
 Object.assign(dpadUI.style, {
-    position: 'absolute', left: '22px', bottom: '26px',
+    position: 'absolute', left: '50%', bottom: '26px', transform: 'translateX(-50%)',
     display: 'none', gridTemplateColumns: 'repeat(3, 62px)', gridTemplateRows: 'repeat(3, 62px)',
     gap: '4px', pointerEvents: 'auto', zIndex: '60'
 });
@@ -1099,6 +1138,11 @@ function createDpadButton(label, direction, column, row) {
         try { button.setPointerCapture(e.pointerId); } catch (err) { /* nevadí */ }
     });
     button.addEventListener('pointerup', () => press(false));
+    // iOS Safari zákaz zvětšování ve viewportu ignoruje a dvojí klepnutí
+    // na stejné místo přiblíží stránku. Zrušení výchozí akce u doteku
+    // a dvojkliku je jediné, co tomu spolehlivě zabrání.
+    button.addEventListener('touchend', (e) => e.preventDefault(), { passive: false });
+    button.addEventListener('dblclick', (e) => e.preventDefault());
     button.addEventListener('pointercancel', () => press(false));
     button.addEventListener('pointerleave', () => press(false));
     return button;
