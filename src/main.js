@@ -37,7 +37,8 @@ const ICON_PIXELS = {
     area:  ['XXXXXXX', 'X.....X', 'X.....X', 'XXXX..X', 'XXXX..X', 'XXXX..X', 'XXXXXXX'],
     timer: ['XXXXXXX', '.X...X.', '..X.X..', '...X...', '..X.X..', '.X...X.', 'XXXXXXX'],
     lock:  ['.XXXXX.', '.X...X.', '.X...X.', 'XXXXXXX', 'XXX.XXX', 'XXX.XXX', 'XXXXXXX'],
-    star:  ['...X...', '..XXX..', 'XXXXXXX', '.XXXXX.', '..XXX..', '.XX.XX.', 'X.....X']
+    star:  ['...X...', '..XXX..', 'XXXXXXX', '.XXXXX.', '..XXX..', '.XX.XX.', 'X.....X'],
+    core:  ['...X...', '..XXX..', '.XXXXX.', 'XXXXXXX', '.XXXXX.', '..XXX..', '...X...']
 };
 
 // Sousední pixely v řádku se slučují do jednoho obdélníku, ať je SVG krátké.
@@ -78,16 +79,33 @@ function applyHoverFill(el, color, withSound = true) {
 // --- KONFIGURACE LEVELŮ ---
 // Cíl je všude 80 %. Dřív rostl až na 90 %, což spolu s přibývajícími
 // minami dělalo poslední levely prakticky neprůchozí.
+// `pillars` jsou ostrůvky už zvednuté plochy — od pátého levelu jeden,
+// v osmém čtyři, aby hráč nemusel každý tah vracet až k okraji arény.
 const LEVELS_CONFIG = [
-    { id: 1, target: 80, time: 70, bouncers: 2, eaters: 0, bombers: 0, maxMines: 2 },
-    { id: 2, target: 80, time: 80, bouncers: 2, eaters: 1, bombers: 0, maxMines: 2 },
-    { id: 3, target: 80, time: 90, bouncers: 3, eaters: 1, bombers: 0, maxMines: 3 },
-    { id: 4, target: 80, time: 100, bouncers: 2, eaters: 2, bombers: 1, maxMines: 3 },
-    { id: 5, target: 80, time: 110, bouncers: 3, eaters: 2, bombers: 1, maxMines: 3 },
-    { id: 6, target: 80, time: 125, bouncers: 3, eaters: 2, bombers: 1, maxMines: 4 },
-    { id: 7, target: 80, time: 140, bouncers: 3, eaters: 3, bombers: 2, maxMines: 4 },
-    { id: 8, target: 80, time: 150, bouncers: 4, eaters: 3, bombers: 2, maxMines: 4 }
+    { id: 1, target: 80, time: 70, bouncers: 2, eaters: 0, bombers: 0, maxMines: 2, pillars: 0 },
+    { id: 2, target: 80, time: 80, bouncers: 2, eaters: 1, bombers: 0, maxMines: 2, pillars: 0 },
+    { id: 3, target: 80, time: 90, bouncers: 3, eaters: 1, bombers: 0, maxMines: 3, pillars: 0 },
+    { id: 4, target: 80, time: 100, bouncers: 2, eaters: 2, bombers: 1, maxMines: 3, pillars: 0 },
+    { id: 5, target: 80, time: 110, bouncers: 3, eaters: 2, bombers: 1, maxMines: 3, pillars: 1 },
+    { id: 6, target: 80, time: 125, bouncers: 3, eaters: 2, bombers: 1, maxMines: 4, pillars: 2 },
+    { id: 7, target: 80, time: 140, bouncers: 3, eaters: 3, bombers: 2, maxMines: 4, pillars: 3 },
+    { id: 8, target: 80, time: 150, bouncers: 4, eaters: 3, bombers: 2, maxMines: 4, pillars: 4 }
 ];
+
+// Boss level stojí mimo číslovanou osmičku: vlastní dlaždice ve výběru,
+// vlastní pravidla. Miny v něm nejsou, o tlak se stará Boss a jeho salvy.
+const BOSS_LEVEL_ID = 9;
+const BOSS_LEVEL_CONFIG = {
+    id: BOSS_LEVEL_ID, target: 80, time: 240,
+    bouncers: 2, eaters: 0, bombers: 0, maxMines: 0, pillars: 4, boss: true
+};
+const TOTAL_LEVEL_COUNT = LEVELS_CONFIG.length + 1;
+const levelConfigById = (id) =>
+    (id === BOSS_LEVEL_ID ? BOSS_LEVEL_CONFIG : LEVELS_CONFIG.find((c) => c.id === id)) || LEVELS_CONFIG[0];
+
+// DOCASNE: dokud si Boss level neodladíme, zůstává odemčený pro všechny.
+// Jinak by se k němu dalo dostat až po dohrání všech osmi levelů.
+const BOSS_ALWAYS_UNLOCKED = true;
 
 // --- LOKALIZACE (CZ / EN) ---
 const i18n = {
@@ -115,6 +133,8 @@ const i18n = {
         helpTitle: "Nápověda",
         helpGoal: "Cíl hry",
         helpGoalText: "Leť dronem po volné ploše a kresli brázdu. Jakmile ji uzavřeš o vlastní území nebo o okraj arény, zabereš všechno uvnitř. V kampani potřebuješ 80 % plochy, v souboji víc než soupeř. Nikdy nenajížděj do vlastní nedokončené brázdy.",
+        helpCollapse: "Když ti do rozdělané brázdy někdo vlítne, nepřijdeš o život hned. Brázda zbělá a začne se bortit od svého začátku směrem k dronu — mnohem rychleji, než letíš. Stihneš-li dorazit na zabrané území, zabere se ti všechno, co z brázdy zůstalo. Život přijdeš až ve chvíli, kdy se rozpadne celá.",
+        helpPillars: "Od pátého levelu stojí v aréně ostrůvky už zvednuté plochy. Chovají se jako kus tvého území, takže na nich jde brázdu uzavřít i daleko od okraje arény.",
         helpControls: "Ovládání",
         helpMoveOne: "Pohyb — hráč 1",
         helpMoveTwo: "Pohyb — hráč 2 (jen 1v1)",
@@ -125,6 +145,10 @@ const i18n = {
         helpEnemies: "Nepřátelé",
         heartName: "Srdce",
         heartDesc: "Objeví se jen zřídka a jen na zabrané ploše. Sebráním získáš život navíc, nejvýš však pět. Zmizí, pokud pod ním plocha přestane být tvoje.",
+        bossLevel: "Boss level",
+        bossIntro: "Uprostřed arény se probral Boss. Míří pomalu přímo k tobě a zabranou plochu drtí jako tank. Nabíjejí ho čtyři generátory — zaber plochu kolem generátoru a umlčíš ho. Jakmile budeš mít 80 % arény, Boss vybuchne.",
+        reasonBossHit: "Boss tě rozdrtil!",
+        reasonBossTrail: "Boss projel tvou brázdou!",
         selectLevel: "Výběr Levelu",
         back: "Zpět",
         level: "Level",
@@ -183,6 +207,8 @@ const i18n = {
         helpTitle: "Help",
         helpGoal: "Objective",
         helpGoalText: "Fly across open ground and draw a trail. Close it against your own territory or the arena edge and everything inside becomes yours. The campaign needs 80 % of the arena, a duel just needs more than your rival. Never run into your own unfinished trail.",
+        helpCollapse: "If something hits your unfinished trail, you do not lose a life straight away. The trail turns white and starts collapsing from its base towards the drone — far faster than you can fly. Reach captured ground in time and everything left of the trail becomes yours. You only lose a life once the whole trail is gone.",
+        helpPillars: "From level five on, islands of already raised ground stand in the arena. They behave like a piece of your territory, so you can close a trail on them far from the arena edge.",
         helpControls: "Controls",
         helpMoveOne: "Move — player 1",
         helpMoveTwo: "Move — player 2 (1v1 only)",
@@ -193,6 +219,10 @@ const i18n = {
         helpEnemies: "Enemies",
         heartName: "Heart",
         heartDesc: "Appears rarely and only on captured ground. Picking it up grants an extra life, up to five. It vanishes if the ground beneath it stops being yours.",
+        bossLevel: "Boss level",
+        bossIntro: "A Boss has woken up in the middle of the arena. It crawls straight at you and grinds captured ground like a tank. Four generators keep it charged — capture the ground around a generator to silence it. Once you hold 80 % of the arena, the Boss blows up.",
+        reasonBossHit: "The boss crushed you!",
+        reasonBossTrail: "The boss drove through your trail!",
         selectLevel: "Select Level",
         back: "Back",
         level: "Level",
@@ -459,6 +489,16 @@ const HELP_ENTRIES = [
         en: { name: 'Fireball', desc: 'Flies straight and very fast. On hitting captured ground it explodes and burns out a circle with a radius of 5 cells. If it hits you or your trail, you lose a life.' }
     },
     {
+        section: 'enemies', shape: 'boss', color: '#10060c', stroke: '#ff2a2a',
+        cz: { name: 'Boss', desc: 'Čeká jen v Boss levelu. Je ze všech nejpomalejší, zato míří pořád přímo k tobě a od ničeho se neodráží — zabranou plochu prostě rozdrtí a sám se tím ještě zpomalí. Dotek s ním stojí život.' },
+        en: { name: 'Boss', desc: 'Waits only in the Boss level. The slowest enemy of all, but it always heads straight at you and bounces off nothing — it simply grinds captured ground down, slowing itself in the process. Touching it costs a life.' }
+    },
+    {
+        section: 'enemies', shape: 'pylon', color: '#9d5bff',
+        cz: { name: 'Generátor', desc: 'Čtyři z nich nabíjejí Bosse. Dokud je naživu aspoň jeden, Boss každých 10 sekund vystřelí ohnivé koule do všech stran — pozná se to podle krátkého zatřesení. Zaber plochu kolem generátoru a nadobro ho umlčíš.' },
+        en: { name: 'Generator', desc: 'Four of them keep the Boss charged. While even one is alive, the Boss fires a ring of fireballs every 10 seconds — a brief shudder gives it away. Capture the ground around a generator to silence it for good.' }
+    },
+    {
         section: 'objects', shape: 'mine', color: '#c6ff2e',
         cz: { name: 'Mina', desc: 'Objeví se uvnitř zabraného území. Jakmile se přiblížíš na 4 pole, spustí se odpočet 5 sekund — pak vybuchne, zničí kruh o poloměru 7 polí a v jeho dosahu zabije i tebe.' },
         en: { name: 'Mine', desc: 'Appears inside captured territory. Come within 4 cells and a 5 second countdown starts — then it explodes, destroying a circle with a radius of 7 cells and killing you if you are inside it.' }
@@ -480,6 +520,13 @@ function enemyShapeSvg(entry) {
         body = `<polygon points="22,5 39,22 22,39 5,22" fill="${entry.color}"${stroke}/>`;
     } else if (entry.shape === 'heart') {
         return pixelIcon('heart', entry.color, 5);
+    } else if (entry.shape === 'boss') {
+        // jádro v otáčející se kleci, jak boss vypadá ve hře
+        body = `<polygon points="22,3 41,22 22,41 3,22" fill="none" stroke="${entry.stroke}" stroke-width="1.5" opacity="0.6"/>`
+             + `<polygon points="22,8 33,15 33,29 22,36 11,29 11,15" fill="${entry.color}" stroke="${entry.stroke}" stroke-width="2.5"/>`;
+    } else if (entry.shape === 'pylon') {
+        body = `<polygon points="14,40 30,40 27,20 17,20" fill="#141124" stroke="${entry.color}" stroke-width="2"/>`
+             + `<polygon points="22,4 29,12 22,20 15,12" fill="${entry.color}"/>`;
     } else {
         // osmiboké tělo se svítícím prstencem, jak mina vypadá ve hře
         const octagon = '32.2,26.2 26.2,32.2 17.8,32.2 11.8,26.2 11.8,17.8 17.8,11.8 26.2,11.8 32.2,17.8';
@@ -561,6 +608,8 @@ function openHelp() {
     helpList.appendChild(createHelpHeading('helpGoal'));
     const goal = createHelpCard();
     goal.appendChild(createHelpText(t('helpGoalText')));
+    goal.appendChild(createHelpText(t('helpCollapse')));
+    goal.appendChild(createHelpText(t('helpPillars'), UI.dim));
     helpList.appendChild(goal);
 
     // --- ovládání ---
@@ -785,7 +834,10 @@ function createHudItem(iconName, iconColor) {
 const livesHud = createHudItem('heart', UI.danger);
 const percentHud = createHudItem('area', UI.cyan);
 const timeHud = createHudItem('timer', UI.amber);
-hudContainer.append(livesHud.wrap, percentHud.wrap, timeHud.wrap);
+// jen v Boss levelu — kolik generátorů ještě Bosse nabíjí
+const generatorHud = createHudItem('core', '#9d5bff');
+generatorHud.wrap.style.display = 'none';
+hudContainer.append(livesHud.wrap, percentHud.wrap, timeHud.wrap, generatorHud.wrap);
 
 // HUD souboje: oba hráči vedle sebe v barvách svých dronů, mezi nimi čas.
 const duelHud = document.createElement('div');
@@ -985,6 +1037,24 @@ noticeBox.appendChild(noticeClose);
 
 const noticeText = document.createElement('div');
 noticeBox.appendChild(noticeText);
+
+// Zásvit přes celou obrazovku. Používá se při výbuchu Bosse — výbuch
+// takové velikosti potřebuje víc než jen částice.
+const flashOverlay = document.createElement('div');
+Object.assign(flashOverlay.style, {
+    position: 'absolute', top: '0', left: '0', width: '100%', height: '100%',
+    backgroundColor: '#ffffff', opacity: '0', pointerEvents: 'none', zIndex: '300'
+});
+uiContainer.appendChild(flashOverlay);
+
+function flashScreen() {
+    flashOverlay.style.transition = 'none';
+    flashOverlay.style.opacity = '1';
+    setTimeout(() => {
+        flashOverlay.style.transition = 'opacity 1.6s ease-out';
+        flashOverlay.style.opacity = '0';
+    }, 40);
+}
 
 function showNotice(textKey) {
     noticeText.textContent = t(textKey);
@@ -1207,6 +1277,28 @@ function openLevelSelect() {
         }
         levelGrid.appendChild(box);
     });
+
+    // Boss level dostane vlastní pruh přes celou šířku — není to devátý
+    // level v řadě, ale finále kampaně.
+    const bossUnlocked = BOSS_ALWAYS_UNLOCKED || progress.unlocked > LEVELS_CONFIG.length;
+    const bossBox = document.createElement('div');
+    Object.assign(bossBox.style, {
+        gridColumn: '1 / -1', height: `${Math.round(LEVEL_TILE * 0.55)}px`,
+        display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px',
+        border: `2px solid ${bossUnlocked ? UI.danger : '#2b3a4a'}`,
+        color: bossUnlocked ? UI.danger : UI.dim,
+        cursor: bossUnlocked ? 'pointer' : 'not-allowed',
+        fontFamily: UI.font, fontSize: `${isTouchDevice ? 22 : 32}px`,
+        letterSpacing: '3px', textTransform: 'uppercase'
+    });
+    bossBox.innerHTML = `<span>${t('bossLevel')}</span>`
+        + (bossUnlocked ? '' : `<span style="display:flex; color:inherit;">${pixelIcon('lock', 'currentColor', isTouchDevice ? 2 : 3)}</span>`);
+
+    if (bossUnlocked) {
+        applyHoverFill(bossBox, UI.danger);
+        bossBox.onclick = () => { soundManager.playSFX('click'); startLevel(BOSS_LEVEL_ID); };
+    }
+    levelGrid.appendChild(bossBox);
 }
 
 let hudLives = null, hudSeconds = null, hudPercent = null, hudTarget = null;
@@ -1229,6 +1321,9 @@ function updateHUD() {
         percentHud.value.textContent = `${filledPercentage}% / ${targetPercentage}%`;
         hudPercent = filledPercentage;
         hudTarget = targetPercentage;
+    }
+    if (generators.length > 0) {
+        generatorHud.value.textContent = `${activeGeneratorCount()}/${generators.length}`;
     }
 }
 
@@ -1309,7 +1404,7 @@ function showResult(isWin, reasonKey = "") {
         if (!progress.scores[currentLevelId] || score > progress.scores[currentLevelId]) {
             progress.scores[currentLevelId] = score;
         }
-        if (currentLevelId === progress.unlocked && currentLevelId < LEVELS_CONFIG.length) {
+        if (currentLevelId === progress.unlocked && currentLevelId < TOTAL_LEVEL_COUNT) {
             progress.unlocked++;
         }
         saveProgress();
@@ -1328,7 +1423,7 @@ function showResult(isWin, reasonKey = "") {
     const btnContainer = document.createElement('div');
     Object.assign(btnContainer.style, { marginTop: '40px', display: 'flex', gap: '20px' });
     
-    if (isWin && currentLevelId < LEVELS_CONFIG.length) {
+    if (isWin && currentLevelId < TOTAL_LEVEL_COUNT) {
         const nextBtn = document.createElement('button');
         nextBtn.innerText = t('nextLevel');
         Object.assign(nextBtn.style, {
@@ -1493,6 +1588,19 @@ const trailMask = new Uint8Array(MAX_BLOCKS);
 const regionTouchesTrail = new Uint8Array(MAX_BLOCKS);
 const regionHasEnemy = new Uint8Array(MAX_BLOCKS);
 
+// --- BORCENÍ BRÁZDY ---
+// Zásah do rozdělané brázdy hráče nezabije hned. Brázda se začne bortit od
+// svého začátku směrem k dronu, a to mnohem rychleji, než dron letí — zbývá
+// tedy jen krátká chvíle na doražení na zabranou plochu. Co se zbortit
+// nestihne, to se zabere. Teprve když se brázda rozpadne celá, přijde smrt.
+// Dron letí nejvýš 15 jednotek za sekundu, tedy 60 polí; borcení je trojnásobné.
+const TRAIL_COLLAPSE_CELLS_PER_SEC = 180;
+// Zbytek brázdy zbělá, aby bylo na první pohled vidět, že hoří čas.
+const TRAIL_DANGER_COLOR = new THREE.Color(0xfff2f4);
+// rychlost, jakou se zbortěný blok propadá pod podlahu
+const TRAIL_SINK_SPEED = 9;
+const sinkingBlocks = [];
+
 function getIndex(x, z) { return z * GRID_SIZE + x; }
 
 function createBlock(gridX, gridZ, color, type, animateRise = true) {
@@ -1503,6 +1611,13 @@ function createBlock(gridX, gridZ, color, type, animateRise = true) {
 
     grid[gridZ][gridX] = type;
     blocksMesh.setColorAt(index, color);
+
+    // Políčko se mohlo právě propadat po zbortění brázdy. Kdyby tam animace
+    // zůstala, přepsala by nově postavený blok zpátky do země.
+    if (sinkingBlocks.length > 0) {
+        const sinkIdx = sinkingBlocks.findIndex((s) => s.index === index);
+        if (sinkIdx !== -1) sinkingBlocks.splice(sinkIdx, 1);
+    }
 
     if (animateRise) {
         dummy.position.set(worldX, targetY - BLOCK_HEIGHT, worldZ);
@@ -1539,8 +1654,47 @@ function resetGrid() {
     }
     blocksMesh.instanceMatrix.needsUpdate = true;
     animatingBlocks.length = 0;
+    sinkingBlocks.length = 0;
     players.forEach((p) => { p.trail.length = 0; p.percentage = 0; });
     filledPercentage = 0;
+}
+
+// --- ZÁCHRANNÉ PILÍŘE ---
+// Ostrůvky už zvednuté plochy uvnitř arény. Patří hráči, takže se o ně dá
+// uzavřít brázda — hráč se nemusí s každým tahem vracet až k okraji.
+const PILLAR_CELL_RADIUS = 2.6;      // osmiboký ostrůvek o průměru pěti polí
+const PILLAR_MIN_GAP = 20;           // v polích, aby pilíře nesrostly v jeden
+const PILLAR_MIN_FROM_START = 16;    // start hráče musí zůstat na volné ploše
+
+function createRescuePillars(count, player) {
+    if (!count) return;
+
+    const margin = 9;
+    const span = GRID_SIZE - 2 * margin;
+    const mine = capturedValue(player.index);
+    const startX = Math.floor((player.startX + (ARENA_SIZE / 2)) / CELL_SIZE);
+    const startZ = Math.floor((player.startZ + (ARENA_SIZE / 2)) / CELL_SIZE);
+    const placed = [];
+
+    for (let i = 0; i < count; i++) {
+        for (let tries = 0; tries < 200; tries++) {
+            const cx = margin + Math.floor(Math.random() * span);
+            const cz = margin + Math.floor(Math.random() * span);
+            if (Math.hypot(cx - startX, cz - startZ) < PILLAR_MIN_FROM_START) continue;
+            if (placed.some((p) => Math.hypot(p.x - cx, p.z - cz) < PILLAR_MIN_GAP)) continue;
+
+            placed.push({ x: cx, z: cz });
+            const reach = Math.floor(PILLAR_CELL_RADIUS);
+            for (let dz = -reach; dz <= reach; dz++) {
+                for (let dx = -reach; dx <= reach; dx++) {
+                    if (dx * dx + dz * dz > PILLAR_CELL_RADIUS * PILLAR_CELL_RADIUS) continue;
+                    createBlock(cx + dx, cz + dz, player.colorCaptured, mine, false);
+                }
+            }
+            break;
+        }
+    }
+    return placed;
 }
 
 // Inicializace prázdného gridu
@@ -1578,6 +1732,11 @@ function createPlayer(index, config) {
         lastGridZ: -1,
         lastTrailDir: null,
         trail: [],
+        // stav borcení brázdy po zásahu
+        collapsing: false,
+        collapseProgress: 0,
+        collapseReason: null,
+        trailBroken: false,
         lives: 3,
         isRespawning: false,
         percentage: 0
@@ -1598,6 +1757,10 @@ function resetPlayerState(player) {
     player.lastGridZ = -1;
     player.lastTrailDir = null;
     player.trail.length = 0;
+    player.collapsing = false;
+    player.collapseProgress = 0;
+    player.collapseReason = null;
+    player.trailBroken = false;
     player.isRespawning = false;
 }
 
@@ -2248,7 +2411,7 @@ class Bouncer {
             nextX = this.vx > 0 ? checkGridX * CELL_SIZE - (ARENA_SIZE / 2) - this.colRadius - 0.001 : (checkGridX + 1) * CELL_SIZE - (ARENA_SIZE / 2) + this.colRadius + 0.001;
             this.vx *= -1; 
             bounced = true;
-        } else if (isTrailCell(cellX)) playerDied(players[trailOwner(cellX)], t('reasonEnemyTrail'));
+        } else if (isTrailCell(cellX)) damageTrail(players[trailOwner(cellX)], 'reasonEnemyTrail');
         this.mesh.position.x = nextX; 
 
         let nextZ = this.mesh.position.z + this.vz * delta;
@@ -2260,7 +2423,7 @@ class Bouncer {
             nextZ = this.vz > 0 ? checkGridZ * CELL_SIZE - (ARENA_SIZE / 2) - this.colRadius - 0.001 : (checkGridZ + 1) * CELL_SIZE - (ARENA_SIZE / 2) + this.colRadius + 0.001;
             this.vz *= -1; 
             bounced = true;
-        } else if (isTrailCell(cellZ)) playerDied(players[trailOwner(cellZ)], t('reasonEnemyTrail'));
+        } else if (isTrailCell(cellZ)) damageTrail(players[trailOwner(cellZ)], 'reasonEnemyTrail');
         this.mesh.position.z = nextZ;
 
         if (bounced) soundManager.playSFX('bounce'); 
@@ -2313,7 +2476,7 @@ class Eater {
             nextX = this.vx > 0 ? checkGridX * CELL_SIZE - (ARENA_SIZE / 2) - this.colRadius - 0.001 : (checkGridX + 1) * CELL_SIZE - (ARENA_SIZE / 2) + this.colRadius + 0.001;
             this.vx *= -1; 
             bounced = true;
-        } else if (isTrailCell(cellX)) playerDied(players[trailOwner(cellX)], t('reasonEaterTrail'));
+        } else if (isTrailCell(cellX)) damageTrail(players[trailOwner(cellX)], 'reasonEaterTrail');
         this.mesh.position.x = nextX;
 
         let nextZ = this.mesh.position.z + this.vz * delta;
@@ -2326,7 +2489,7 @@ class Eater {
             nextZ = this.vz > 0 ? checkGridZ * CELL_SIZE - (ARENA_SIZE / 2) - this.colRadius - 0.001 : (checkGridZ + 1) * CELL_SIZE - (ARENA_SIZE / 2) + this.colRadius + 0.001;
             this.vz *= -1; 
             bounced = true;
-        } else if (isTrailCell(cellZ)) playerDied(players[trailOwner(cellZ)], t('reasonEaterTrail'));
+        } else if (isTrailCell(cellZ)) damageTrail(players[trailOwner(cellZ)], 'reasonEaterTrail');
         this.mesh.position.z = nextZ;
         
         this.mesh.rotation.x += 4 * delta; this.mesh.rotation.y += 4 * delta;
@@ -2387,8 +2550,16 @@ class Fireball {
             this.eat(checkGridX, currentGridZ); hit = true;
         } else if (grid[checkGridZ] && (isCapturedCell(grid[checkGridZ][currentGridX]) || grid[checkGridZ][currentGridX] === CELL_WALL)) {
             this.eat(currentGridX, checkGridZ); hit = true;
-        } else if (grid[currentGridZ] && grid[currentGridZ][checkGridX] === 2 || grid[checkGridZ] && grid[checkGridZ][currentGridX] === 2) {
-             playerDied(players[trailOwner(grid[currentGridZ][checkGridX] === 2 || grid[currentGridZ][checkGridX] === 4 ? grid[currentGridZ][checkGridX] : grid[checkGridZ][currentGridX])], t('reasonFireballTrail')); hit = true;
+        } else {
+            // Zásah do rozdělané brázdy. Dřív se tu testovala jen dvojka,
+            // takže brázda druhého hráče v souboji zůstávala nedotčená.
+            const alongX = grid[currentGridZ] ? grid[currentGridZ][checkGridX] : undefined;
+            const alongZ = grid[checkGridZ] ? grid[checkGridZ][currentGridX] : undefined;
+            const trailCell = isTrailCell(alongX) ? alongX : (isTrailCell(alongZ) ? alongZ : null);
+            if (trailCell !== null) {
+                damageTrail(players[trailOwner(trailCell)], 'reasonFireballTrail');
+                hit = true;
+            }
         }
 
         if (hit) {
@@ -2438,7 +2609,7 @@ class Bomber {
             nextX = this.vx > 0 ? checkGridX * CELL_SIZE - (ARENA_SIZE / 2) - this.colRadius - 0.001 : (checkGridX + 1) * CELL_SIZE - (ARENA_SIZE / 2) + this.colRadius + 0.001;
             this.vx *= -1; 
             bounced = true;
-        } else if (isTrailCell(cellX)) playerDied(players[trailOwner(cellX)], t('reasonBomberTrail'));
+        } else if (isTrailCell(cellX)) damageTrail(players[trailOwner(cellX)], 'reasonBomberTrail');
         this.mesh.position.x = nextX;
 
         let nextZ = this.mesh.position.z + this.vz * delta;
@@ -2450,7 +2621,7 @@ class Bomber {
             nextZ = this.vz > 0 ? checkGridZ * CELL_SIZE - (ARENA_SIZE / 2) - this.colRadius - 0.001 : (checkGridZ + 1) * CELL_SIZE - (ARENA_SIZE / 2) + this.colRadius + 0.001;
             this.vz *= -1; 
             bounced = true;
-        } else if (isTrailCell(cellZ)) playerDied(players[trailOwner(cellZ)], t('reasonBomberTrail'));
+        } else if (isTrailCell(cellZ)) damageTrail(players[trailOwner(cellZ)], 'reasonBomberTrail');
         this.mesh.position.z = nextZ;
         
         this.mesh.rotation.x += 4 * delta; this.mesh.rotation.y += 4 * delta;
@@ -2460,14 +2631,322 @@ class Bomber {
     }
 }
 
+// --- BOSS A JEHO GENERÁTORY ---
+// Boss je obří pomalý stroj. Neodráží se — zabranou plochu projíždí a drtí,
+// a čím víc drtí, tím je pomalejší. Nabíjí ho čtyři generátory rozmístěné
+// po aréně; dokud je aspoň jeden živý, Boss pravidelně pálí do všech stran.
+// Zabráním plochy kolem generátoru se generátor umlčí natrvalo.
+const BOSS_RADIUS = CELL_SIZE * 4;
+const BOSS_SPEED = 1.15;
+const BOSS_SPEED_GRINDING = 0.5;     // při drcení plochy ještě zvolní
+const BOSS_FIRE_INTERVAL = 10;
+const BOSS_WARNING_TIME = 1.3;       // zatřesení jako varování před salvou
+const BOSS_CRUSH_CELLS = 4;
+const BOSS_COLOR = 0xff2a2a;
+const BOSS_CAGE_COLOR = 0xff7a1a;
+
+const GENERATOR_COLOR = 0x9d5bff;
+const GENERATOR_RADIUS_CELLS = 6;
+const GENERATOR_CAPTURE_RATIO = 0.7;
+
+const generators = [];
+let boss = null;
+
+const activeGeneratorCount = () => generators.reduce((sum, g) => sum + (g.active ? 1 : 0), 0);
+
+class Generator {
+    constructor(gridX, gridZ) {
+        this.gridX = gridX;
+        this.gridZ = gridZ;
+        this.active = true;
+        this.checkTimer = 0;
+        this.pulsePhase = Math.random() * Math.PI * 2;
+
+        const x = gridX * CELL_SIZE - (ARENA_SIZE / 2) + (CELL_SIZE / 2);
+        const z = gridZ * CELL_SIZE - (ARENA_SIZE / 2) + (CELL_SIZE / 2);
+
+        this.mesh = new THREE.Group();
+        this.mesh.position.set(x, 0, z);
+
+        const bodyGeo = new THREE.CylinderGeometry(CELL_SIZE * 0.9, CELL_SIZE * 1.4, BLOCK_HEIGHT * 1.8, 6);
+        const body = new THREE.Mesh(bodyGeo, new THREE.MeshBasicMaterial({ color: 0x141124 }));
+        body.position.y = BLOCK_HEIGHT * 0.9;
+        this.edgeMaterial = new THREE.LineBasicMaterial({ color: GENERATOR_COLOR });
+        body.add(new THREE.LineSegments(new THREE.EdgesGeometry(bodyGeo), this.edgeMaterial));
+        this.mesh.add(body);
+
+        this.coreMaterial = new THREE.MeshBasicMaterial({ color: GENERATOR_COLOR, transparent: true, opacity: 0.9 });
+        this.core = new THREE.Mesh(new THREE.OctahedronGeometry(CELL_SIZE * 0.8, 0), this.coreMaterial);
+        this.core.position.y = BLOCK_HEIGHT * 2.15;
+        this.mesh.add(this.core);
+
+        // paprsek, kterým generátor Bosse nabíjí
+        const beamGeo = new THREE.BufferGeometry();
+        beamGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+        this.beamMaterial = new THREE.LineBasicMaterial({ color: GENERATOR_COLOR, transparent: true, opacity: 0.5 });
+        this.beam = new THREE.Line(beamGeo, this.beamMaterial);
+        this.beam.frustumCulled = false;
+
+        sceneGroup.add(this.mesh, this.beam);
+    }
+
+    capturedRatio() {
+        let total = 0;
+        let captured = 0;
+        const r = GENERATOR_RADIUS_CELLS;
+        for (let dz = -r; dz <= r; dz++) {
+            for (let dx = -r; dx <= r; dx++) {
+                if (dx * dx + dz * dz > r * r) continue;
+                const x = this.gridX + dx;
+                const z = this.gridZ + dz;
+                if (x <= 0 || x >= GRID_SIZE - 1 || z <= 0 || z >= GRID_SIZE - 1) continue;
+                total++;
+                if (isCapturedCell(grid[z][x])) captured++;
+            }
+        }
+        return total === 0 ? 0 : captured / total;
+    }
+
+    deactivate() {
+        this.active = false;
+        this.coreMaterial.color.setHex(0x3a3550);
+        this.edgeMaterial.color.setHex(0x3a3550);
+        this.beam.visible = false;
+        soundManager.playSFX('capture');
+        createExplosion(this.mesh.position.x, BLOCK_HEIGHT * 2, this.mesh.position.z, 30, [GENERATOR_COLOR, 0xffffff]);
+        updateHUD();
+    }
+
+    update(delta) {
+        this.pulsePhase += delta * 3;
+        if (!this.active) return;
+
+        // sken okolí není potřeba každý snímek
+        this.checkTimer += delta;
+        if (this.checkTimer > 0.3) {
+            this.checkTimer = 0;
+            if (this.capturedRatio() >= GENERATOR_CAPTURE_RATIO) {
+                this.deactivate();
+                return;
+            }
+        }
+
+        const pulse = Math.sin(this.pulsePhase) * 0.5 + 0.5;
+        this.core.rotation.y += delta * 2;
+        this.core.scale.setScalar(0.85 + pulse * 0.3);
+        this.coreMaterial.opacity = 0.6 + pulse * 0.4;
+
+        if (boss && !boss.isDead) {
+            const position = this.beam.geometry.attributes.position;
+            position.setXYZ(0, this.mesh.position.x, BLOCK_HEIGHT * 2.15, this.mesh.position.z);
+            position.setXYZ(1, boss.mesh.position.x, boss.mesh.position.y, boss.mesh.position.z);
+            position.needsUpdate = true;
+            this.beamMaterial.opacity = 0.25 + pulse * 0.35;
+        } else {
+            this.beam.visible = false;
+        }
+    }
+
+    remove() {
+        sceneGroup.remove(this.mesh);
+        sceneGroup.remove(this.beam);
+    }
+}
+
+class Boss {
+    constructor(x, z) {
+        this.radius = BOSS_RADIUS;
+        this.fireTimer = 0;
+        this.pulsePhase = Math.random() * Math.PI * 2;
+        this.isDead = false;
+
+        this.mesh = new THREE.Group();
+        this.mesh.position.set(x, BLOCK_HEIGHT * 0.9, z);
+
+        const coreGeo = new THREE.IcosahedronGeometry(BOSS_RADIUS, 0);
+        this.core = new THREE.Mesh(coreGeo, new THREE.MeshBasicMaterial({ color: 0x10060c }));
+        this.core.add(new THREE.LineSegments(
+            new THREE.EdgesGeometry(coreGeo),
+            new THREE.LineBasicMaterial({ color: BOSS_COLOR })
+        ));
+        this.mesh.add(this.core);
+
+        const cageGeo = new THREE.OctahedronGeometry(BOSS_RADIUS * 1.5, 0);
+        this.cage = new THREE.LineSegments(
+            new THREE.EdgesGeometry(cageGeo),
+            new THREE.LineBasicMaterial({ color: BOSS_CAGE_COLOR, transparent: true, opacity: 0.7 })
+        );
+        this.mesh.add(this.cage);
+
+        this.ringMaterial = new THREE.MeshBasicMaterial({
+            color: BOSS_COLOR, transparent: true, opacity: 0.35,
+            blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
+        });
+        this.ring = new THREE.Mesh(new THREE.RingGeometry(BOSS_RADIUS * 1.2, BOSS_RADIUS * 1.8, 24), this.ringMaterial);
+        this.ring.rotation.x = -Math.PI / 2;
+        this.ring.position.y = BLOCK_HEIGHT * 0.15;
+        this.mesh.add(this.ring);
+
+        sceneGroup.add(this.mesh);
+    }
+
+    nearestPlayer() {
+        let best = null;
+        let bestDistance = Infinity;
+        for (const target of players) {
+            if (target.isRespawning) continue;
+            const distance = Math.hypot(
+                target.group.position.x - this.mesh.position.x,
+                target.group.position.z - this.mesh.position.z
+            );
+            if (distance < bestDistance) { bestDistance = distance; best = target; }
+        }
+        return best;
+    }
+
+    // Projíždí skrz bloky a drtí je. Brázdu nezabíjí přímo — nechá ji zbortit
+    // stejně jako každý jiný zásah.
+    crush() {
+        const gridX = Math.floor((this.mesh.position.x + (ARENA_SIZE / 2)) / CELL_SIZE);
+        const gridZ = Math.floor((this.mesh.position.z + (ARENA_SIZE / 2)) / CELL_SIZE);
+        let destroyed = 0;
+
+        for (let dz = -BOSS_CRUSH_CELLS; dz <= BOSS_CRUSH_CELLS; dz++) {
+            for (let dx = -BOSS_CRUSH_CELLS; dx <= BOSS_CRUSH_CELLS; dx++) {
+                if (dx * dx + dz * dz > BOSS_CRUSH_CELLS * BOSS_CRUSH_CELLS) continue;
+                const x = gridX + dx;
+                const z = gridZ + dz;
+                if (x <= 0 || x >= GRID_SIZE - 1 || z <= 0 || z >= GRID_SIZE - 1) continue;
+
+                const value = grid[z][x];
+                if (isTrailCell(value)) {
+                    damageTrail(players[trailOwner(value)], 'reasonBossTrail');
+                    continue;
+                }
+                if (!isCapturedCell(value)) continue;
+
+                grid[z][x] = CELL_EMPTY;
+                dummy.scale.set(0, 0, 0);
+                dummy.updateMatrix();
+                blocksMesh.setMatrixAt(getIndex(x, z), dummy.matrix);
+                destroyed++;
+            }
+        }
+
+        if (destroyed > 0) {
+            blocksMesh.instanceMatrix.needsUpdate = true;
+            calculatePercentage();
+            if (Math.random() < 0.4) {
+                const angle = Math.random() * Math.PI * 2;
+                spawnParticle(
+                    this.mesh.position.x, BLOCK_HEIGHT, this.mesh.position.z,
+                    Math.cos(angle) * 3, Math.random() * 4 + 2, Math.sin(angle) * 3,
+                    0.4, BOSS_CAGE_COLOR
+                );
+            }
+        }
+        return destroyed;
+    }
+
+    fire() {
+        const count = 3 * activeGeneratorCount();
+        if (count <= 0) return;
+
+        soundManager.playSFX('explosion');
+        for (let i = 0; i < count; i++) {
+            const angle = (i / count) * Math.PI * 2;
+            fireballs.push(new Fireball(
+                this.mesh.position.x + Math.cos(angle) * this.radius,
+                this.mesh.position.z + Math.sin(angle) * this.radius,
+                angle
+            ));
+        }
+        cameraShakeTime = 0.45;
+    }
+
+    explode() {
+        if (this.isDead) return;
+        this.isDead = true;
+        soundManager.playSFX('explosion');
+        for (let i = 0; i < 4; i++) {
+            createExplosion(
+                this.mesh.position.x, this.mesh.position.y + i * 0.4, this.mesh.position.z,
+                70, [0xffffff, COLOR_ORANGE, BOSS_COLOR]
+            );
+        }
+        sceneGroup.remove(this.mesh);
+        cameraShakeTime = 1.4;
+        flashScreen();
+    }
+
+    update(delta) {
+        if (this.isDead) return;
+
+        const charged = activeGeneratorCount() > 0;
+        const toFire = BOSS_FIRE_INTERVAL - this.fireTimer;
+        const warning = charged && toFire <= BOSS_WARNING_TIME;
+
+        if (charged) {
+            this.fireTimer += delta;
+            if (this.fireTimer >= BOSS_FIRE_INTERVAL) {
+                this.fire();
+                this.fireTimer = 0;
+            }
+        } else {
+            this.fireTimer = 0;
+        }
+
+        const destroyed = this.crush();
+        const speed = destroyed > 0 ? BOSS_SPEED_GRINDING : BOSS_SPEED;
+        const target = this.nearestPlayer();
+
+        // při nabírání dechu před salvou se zastaví, ať je varování čitelné
+        if (target && !warning) {
+            const dx = target.group.position.x - this.mesh.position.x;
+            const dz = target.group.position.z - this.mesh.position.z;
+            const length = Math.hypot(dx, dz) || 1;
+            const limit = (ARENA_SIZE / 2) - CELL_SIZE * 2;
+            this.mesh.position.x = THREE.MathUtils.clamp(this.mesh.position.x + (dx / length) * speed * delta, -limit, limit);
+            this.mesh.position.z = THREE.MathUtils.clamp(this.mesh.position.z + (dz / length) * speed * delta, -limit, limit);
+        }
+
+        this.core.rotation.y += 0.35 * delta;
+        this.core.rotation.x += 0.18 * delta;
+        this.cage.rotation.y -= 0.55 * delta;
+
+        this.pulsePhase += delta * 2.4;
+        const pulse = Math.sin(this.pulsePhase) * 0.5 + 0.5;
+        this.ringMaterial.opacity = charged ? 0.2 + pulse * 0.35 : 0.07;
+        this.ring.scale.setScalar(charged ? 1 + pulse * 0.08 : 1);
+
+        if (warning) {
+            const amplitude = 0.3 * (1 - toFire / BOSS_WARNING_TIME);
+            this.core.position.set(
+                (Math.random() - 0.5) * amplitude,
+                (Math.random() - 0.5) * amplitude,
+                (Math.random() - 0.5) * amplitude
+            );
+            this.ringMaterial.opacity = 0.85;
+        } else if (this.core.position.lengthSq() > 0) {
+            this.core.position.set(0, 0, 0);
+        }
+
+        hitPlayersInRange(this.mesh.position, this.radius * 0.8, 'reasonBossHit');
+    }
+}
+
 const enemies = [];
-const fireballs = []; 
+const fireballs = [];
 const droneDebris = [];
 let lastTrailDir = null;
 
 function clearSceneEntities() {
     enemies.forEach(e => sceneGroup.remove(e.mesh));
     enemies.length = 0;
+    generators.forEach(g => g.remove());
+    generators.length = 0;
+    if (boss) sceneGroup.remove(boss.mesh);
+    boss = null;
     fireballs.forEach(f => sceneGroup.remove(f.mesh));
     fireballs.length = 0;
     activeItems.forEach(i => sceneGroup.remove(i.mesh));
@@ -2486,6 +2965,27 @@ function clearSceneEntities() {
 
 const PLAYER_START_Z = (ARENA_SIZE / 2) - (CELL_SIZE / 2);
 
+// Nepřítel nesmí vzniknout uvnitř pilíře — mezi bloky by se zasekl
+// a jen se odrážel sám v sobě.
+function findEnemySpawn() {
+    for (let tries = 0; tries < 80; tries++) {
+        const x = (Math.random() - 0.5) * 15;
+        const z = (Math.random() - 0.5) * 15;
+        const gx = Math.floor((x + (ARENA_SIZE / 2)) / CELL_SIZE);
+        const gz = Math.floor((z + (ARENA_SIZE / 2)) / CELL_SIZE);
+
+        let free = true;
+        for (let dz = -2; dz <= 2 && free; dz++) {
+            for (let dx = -2; dx <= 2; dx++) {
+                const row = grid[gz + dz];
+                if (!row || row[gx + dx] !== CELL_EMPTY) { free = false; break; }
+            }
+        }
+        if (free) return { x, z };
+    }
+    return { x: 0, z: 0 };
+}
+
 function beginMatch() {
     isGameOver = false;
     isWinAnimating = false;
@@ -2502,6 +3002,7 @@ function beginMatch() {
     sceneGroup.visible = true;
     menuUI.style.display = 'none';
     levelSelectUI.style.display = 'none';
+    helpUI.style.display = 'none';
     resultOverlay.style.display = 'none';
     gameUI.style.display = 'block';
     controlsUI.style.display = 'flex';
@@ -2516,12 +3017,17 @@ function finishMatchStart() {
     gameState = 'PLAYING';
     // až teď, protože zobrazení šipek se řídí herním stavem
     refreshTouchControls();
+    // pilíře už na ploše stojí, takže HUD má hned ukazovat jejich procenta
+    recalculatePercentages();
 }
+
+// Čtyři generátory stojí symetricky ve čtvrtinách arény, daleko od startu.
+const GENERATOR_SPOTS = [[30, 30], [70, 30], [30, 70], [70, 70]];
 
 function startLevel(levelId) {
     gameMode = 'campaign';
     currentLevelId = levelId;
-    currentLevelConfig = LEVELS_CONFIG.find(c => c.id === levelId) || LEVELS_CONFIG[0];
+    currentLevelConfig = levelConfigById(levelId);
 
     timeRemaining = currentLevelConfig.time;
     targetPercentage = currentLevelConfig.target;
@@ -2529,7 +3035,7 @@ function startLevel(levelId) {
 
     beginMatch();
 
-    createPlayer(0, {
+    const hero = createPlayer(0, {
         keys: KEY_LAYOUTS.wasd,
         colors: PLAYER_COLORS.campaign[0],
         startX: 0,
@@ -2537,18 +3043,31 @@ function startLevel(levelId) {
         labelKey: 'playerOne'
     });
 
+    // pilíře první, aby se do nich nepřátelé nenarodili
+    createRescuePillars(currentLevelConfig.pillars, hero);
+
     for (let i = 0; i < currentLevelConfig.bouncers; i++) {
-        enemies.push(new Bouncer((Math.random() - 0.5) * 15, (Math.random() - 0.5) * 15));
+        const spot = findEnemySpawn();
+        enemies.push(new Bouncer(spot.x, spot.z));
     }
     for (let i = 0; i < currentLevelConfig.eaters; i++) {
-        enemies.push(new Eater((Math.random() - 0.5) * 15, (Math.random() - 0.5) * 15));
+        const spot = findEnemySpawn();
+        enemies.push(new Eater(spot.x, spot.z));
     }
     for (let i = 0; i < currentLevelConfig.bombers; i++) {
-        enemies.push(new Bomber((Math.random() - 0.5) * 15, (Math.random() - 0.5) * 15));
+        const spot = findEnemySpawn();
+        enemies.push(new Bomber(spot.x, spot.z));
+    }
+
+    if (currentLevelConfig.boss) {
+        GENERATOR_SPOTS.forEach(([gx, gz]) => generators.push(new Generator(gx, gz)));
+        boss = new Boss(0, 0);
+        showNotice('bossIntro');
     }
 
     duelHud.style.display = 'none';
     hudContainer.style.display = 'flex';
+    generatorHud.wrap.style.display = currentLevelConfig.boss ? 'flex' : 'none';
     finishMatchStart();
 }
 
@@ -2586,7 +3105,8 @@ function startDuel() {
     });
 
     for (let i = 0; i < DUEL_BOUNCERS; i++) {
-        enemies.push(new Bouncer((Math.random() - 0.5) * 15, (Math.random() - 0.5) * 15));
+        const spot = findEnemySpawn();
+        enemies.push(new Bouncer(spot.x, spot.z));
     }
 
     hudContainer.style.display = 'none';
@@ -2639,7 +3159,12 @@ function triggerWin() {
     hero.lastGridX = -1; hero.lastGridZ = -1;
     winAnimationPlayer = hero;
     createFireworks(hero.group.position.x, hero.group.position.y, hero.group.position.z);
-    setTimeout(() => { isWinAnimating = false; showResult(true); }, 2000);
+
+    // Zabraných 80 % Bosse roztrhá. Výbuch je ten konec levelu, takže
+    // výsledková obrazovka chvíli počká, než záblesk dohoří.
+    const bossFight = boss && !boss.isDead;
+    if (bossFight) boss.explode();
+    setTimeout(() => { isWinAnimating = false; showResult(true); }, bossFight ? 2800 : 2000);
 }
 
 function endDuel(winner, reasonKey) {
@@ -2655,6 +3180,102 @@ function endDuel(winner, reasonKey) {
     winAnimationPlayer = winner;
     createFireworks(winner.group.position.x, winner.group.position.y, winner.group.position.z);
     setTimeout(() => { isWinAnimating = false; showDuelResult(winner, reasonKey); }, 2000);
+}
+
+// --- BORCENÍ BRÁZDY PO ZÁSAHU ---
+// Zásah brázdu nezničí naráz: začne se rozpadat od svého začátku směrem
+// k dronu. Hráč má tedy chvilku na to, aby dorazil na zabranou plochu a
+// zachránil, co zbylo.
+function damageTrail(player, reasonKey) {
+    if (!player || player.isRespawning) return;
+    if (isGameOver || isWinAnimating || gameState !== 'PLAYING') return;
+    if (player.trail.length === 0) return;
+    // druhý zásah do už bortící se brázdy rozpad nezrychluje
+    if (player.collapsing) return;
+
+    player.collapsing = true;
+    player.collapseProgress = 0;
+    player.collapseReason = reasonKey;
+    soundManager.playSFX('collapse');
+
+    for (const point of player.trail) {
+        blocksMesh.setColorAt(getIndex(point.x, point.z), TRAIL_DANGER_COLOR);
+    }
+    if (blocksMesh.instanceColor) blocksMesh.instanceColor.needsUpdate = true;
+}
+
+// Jedno políčko brázdy se propadne. Pod brázdou mohlo být území soupeře —
+// to se mu vrací rovnou, propadá se jen to, co stálo na prázdné ploše.
+function collapseTrailCell(player, point) {
+    const index = getIndex(point.x, point.z);
+    const animIdx = animatingBlocks.findIndex((a) => a.index === index);
+    if (animIdx !== -1) animatingBlocks.splice(animIdx, 1);
+
+    const worldX = point.x * CELL_SIZE - (ARENA_SIZE / 2) + (CELL_SIZE / 2);
+    const worldZ = point.z * CELL_SIZE - (ARENA_SIZE / 2) + (CELL_SIZE / 2);
+
+    for (let i = 0; i < 2; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        spawnParticle(
+            worldX, BLOCK_HEIGHT * 0.9, worldZ,
+            Math.cos(angle) * 2.4, Math.random() * 4 + 2.5, Math.sin(angle) * 2.4,
+            0.35, i === 0 ? 0xffffff : player.colorTrail.getHex()
+        );
+    }
+
+    if (point.prev === CELL_EMPTY) {
+        grid[point.z][point.x] = CELL_EMPTY;
+        sinkingBlocks.push({ index, x: worldX, z: worldZ, y: BLOCK_HEIGHT / 2 });
+    } else {
+        const owner = players[capturedOwner(point.prev)];
+        createBlock(point.x, point.z, owner ? owner.colorCaptured : arenaWallColor(), point.prev, false);
+    }
+}
+
+// Rozpadne daný počet nejstarších políček brázdy.
+function consumeTrailCells(player, count) {
+    let consumed = 0;
+    while (consumed < count && player.trail.length > 0) {
+        collapseTrailCell(player, player.trail.shift());
+        player.trailBroken = true;
+        consumed++;
+    }
+    if (consumed > 0) blocksMesh.instanceMatrix.needsUpdate = true;
+
+    // teprve rozpadlá brázda bere život
+    if (player.trail.length === 0 && player.collapsing) {
+        player.collapsing = false;
+        playerDied(player, t(player.collapseReason || 'reasonEnemyTrail'));
+    }
+}
+
+// Soupeřův dron si projeté políčko přebírá pro svou vlastní brázdu —
+// dvě brázdy se o jedno pole dělit nemohou. Zbytek cizí brázdy zůstává
+// a bortí se postupně od začátku jako po každém jiném zásahu.
+function takeOverTrailCell(player, gridX, gridZ) {
+    if (!player) return;
+    const at = player.trail.findIndex((point) => point.x === gridX && point.z === gridZ);
+    if (at === -1) return;
+
+    player.trail.splice(at, 1);
+    player.trailBroken = true;
+    grid[gridZ][gridX] = CELL_EMPTY;
+
+    if (player.trail.length === 0 && player.collapsing) {
+        player.collapsing = false;
+        playerDied(player, t(player.collapseReason || 'reasonRivalTrail'));
+    }
+}
+
+function updateTrailCollapse(player, delta) {
+    if (!player.collapsing) return;
+
+    player.collapseProgress += TRAIL_COLLAPSE_CELLS_PER_SEC * delta;
+    const whole = Math.floor(player.collapseProgress);
+    if (whole <= 0) return;
+
+    player.collapseProgress -= whole;
+    consumeTrailCells(player, whole);
 }
 
 // Stopa se maže i při smrti: políčka, pod kterými bylo území soupeře,
@@ -2678,14 +3299,31 @@ function removeTrail(player) {
     blocksMesh.instanceMatrix.needsUpdate = true;
     player.trail.length = 0;
     player.lastTrailDir = null;
+    player.collapsing = false;
+    player.collapseProgress = 0;
+    player.trailBroken = false;
 }
 
 function closeTrail(player) {
     const finished = player.trail.slice();
     const mine = capturedValue(player.index);
     for (const point of finished) createBlock(point.x, point.z, player.colorCaptured, mine, false);
+
+    const wasBroken = player.trailBroken;
     player.trail.length = 0;
     player.lastTrailDir = null;
+    player.collapsing = false;
+    player.collapseProgress = 0;
+    player.trailBroken = false;
+
+    // Zbortěná brázda už nespojuje dvě místa území, takže nic neuzavírá.
+    // Zabere se tedy jen to, co z ní hráč dovezl do bezpečí.
+    if (wasBroken) {
+        if (finished.length > 0) soundManager.playSFX('capture');
+        recalculatePercentages();
+        return;
+    }
+
     fillEnclosedAreas(player, finished);
 }
 
@@ -2981,9 +3619,13 @@ function updatePlayerMovement(player, delta) {
             if (cell.x === player.lastGridX && cell.z === player.lastGridZ) continue;
             let value = grid[cell.z][cell.x];
 
-            // nájezd do rozdělané stopy soupeře zabíjí jeho, ne tebe
+            // Nájezd do rozdělané stopy soupeře bortí jeho brázdu, ne tvou.
+            // Políčko si přebírá vlastní brázda, takže se soupeřova rozpadne
+            // až k místu zásahu — dvě brázdy se o jedno pole dělit nemohou.
             if (isTrailCell(value) && trailOwner(value) !== player.index) {
-                playerDied(players[trailOwner(value)], t('reasonRivalTrail'));
+                const rival = players[trailOwner(value)];
+                damageTrail(rival, 'reasonRivalTrail');
+                takeOverTrailCell(rival, cell.x, cell.z);
                 value = grid[cell.z][cell.x];
             }
 
@@ -3009,7 +3651,8 @@ function updatePlayerMovement(player, delta) {
             else if (dz > 0) player.lastTrailDir = 'z';
             else if (dz < 0) player.lastTrailDir = '-z';
 
-            createBlock(cell.x, cell.z, player.colorTrail, mineTrail, true);
+            // bortící se brázda zůstává celá bílá, i když do ní hráč dál přidává
+            createBlock(cell.x, cell.z, player.collapsing ? TRAIL_DANGER_COLOR : player.colorTrail, mineTrail, true);
             player.trail.push({ x: cell.x, z: cell.z, prev: previous });
             soundManager.playSFX('trail');
         }
@@ -3253,6 +3896,7 @@ function animate() {
     if (!isWinAnimating) {
         let fastest = 0;
         for (const p of players) {
+            updateTrailCollapse(p, delta);
             updatePlayerMovement(p, delta);
             fastest = Math.max(fastest, Math.hypot(p.velocityX, p.velocityZ));
         }
@@ -3260,6 +3904,9 @@ function animate() {
     }
 
     for (let enemy of enemies) enemy.update(delta);
+
+    if (boss && !boss.isDead) boss.update(delta);
+    for (const generator of generators) generator.update(delta);
     
     for (let i = fireballs.length - 1; i >= 0; i--) {
         fireballs[i].update(delta);
@@ -3267,6 +3914,21 @@ function animate() {
     }
 
     let needsMatrixUpdate = false;
+
+    // Zbortěné bloky se propadají pod podlahu — stejná animace jako při
+    // stavbě brázdy, jen opačným směrem.
+    for (let i = sinkingBlocks.length - 1; i >= 0; i--) {
+        const sink = sinkingBlocks[i];
+        sink.y -= TRAIL_SINK_SPEED * delta;
+        const gone = sink.y <= -BLOCK_HEIGHT;
+        dummy.position.set(sink.x, gone ? 0 : sink.y, sink.z);
+        dummy.scale.set(gone ? 0 : 1, gone ? 0 : 1, gone ? 0 : 1);
+        dummy.updateMatrix();
+        blocksMesh.setMatrixAt(sink.index, dummy.matrix);
+        if (gone) sinkingBlocks.splice(i, 1);
+        needsMatrixUpdate = true;
+    }
+
     for (let i = animatingBlocks.length - 1; i >= 0; i--) {
         const anim = animatingBlocks[i]; anim.currentY += 8 * delta; 
         if (anim.currentY >= anim.targetY) { anim.currentY = anim.targetY; animatingBlocks.splice(i, 1); }
