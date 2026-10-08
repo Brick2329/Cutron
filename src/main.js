@@ -151,6 +151,11 @@ const i18n = {
         bossBriefingOk: "Jdu na to",
         bossDisarmed: "Boss odzbrojen",
         bossRecharging: "Boss se znovu nabíjí!",
+        gameCompleted: "Úspěšně jsi dokončil hru!",
+        share: "SDÍLET",
+        shareCopied: "ZKOPÍROVÁNO",
+        shareSaved: "ULOŽENO",
+        shareFailed: "NEPOVEDLO SE",
         bossDefeated: "BOSS PORAŽEN",
         totalScore: "Celkové skóre",
         bossIntro: "Uprostřed arény se probral Boss. Míří pomalu přímo k tobě a zabranou plochu drtí jako tank. Nabíjejí ho čtyři generátory — zaber plochu kolem generátoru a umlčíš ho. Co ti ale Boss rozdrtí, to generátor zase probudí. Jakmile budeš mít 80 % arény, Boss vybuchne.",
@@ -232,6 +237,11 @@ const i18n = {
         bossBriefingOk: "Let's go",
         bossDisarmed: "Boss disarmed",
         bossRecharging: "The boss is recharging!",
+        gameCompleted: "You have finished the game!",
+        share: "SHARE",
+        shareCopied: "COPIED",
+        shareSaved: "SAVED",
+        shareFailed: "FAILED",
         bossDefeated: "BOSS DEFEATED",
         totalScore: "Total score",
         bossIntro: "A Boss has woken up in the middle of the arena. It crawls straight at you and grinds captured ground like a tank. Four generators keep it charged — capture the ground around a generator to silence it, but whatever the Boss grinds away wakes that generator up again. Once you hold 80 % of the arena, the Boss blows up.",
@@ -1552,6 +1562,125 @@ const levelScore = () =>
 
 // Konec Boss levelu. Místo obvyklé výhry se sčítá skóre z celé kampaně
 // — Boss je její finále, ne další level v řadě.
+// --- KARTA SE SKÓRE ---
+// Obrázek na pochlubení. Kreslí se do plátna, aby se dal poslat jako PNG,
+// ne jako kus stránky — hráč ho může vyfotit kamarádovi do chatu.
+function renderScoreCard(total) {
+    const width = 900;
+    const height = 480;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+
+    ctx.fillStyle = '#04040f';
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.strokeStyle = UI.cyan;
+    ctx.lineWidth = 4;
+    ctx.strokeRect(18, 18, width - 36, height - 36);
+
+    ctx.textAlign = 'center';
+
+    ctx.fillStyle = UI.cyan;
+    ctx.shadowColor = UI.cyan;
+    ctx.shadowBlur = 18;
+    ctx.font = "96px 'VT323', monospace";
+    ctx.fillText('CUTRON', width / 2, 132);
+
+    ctx.fillStyle = UI.amber;
+    ctx.shadowColor = UI.amber;
+    ctx.font = "62px 'VT323', monospace";
+    ctx.fillText(t('bossDefeated'), width / 2, 214);
+
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = UI.text;
+    ctx.font = "36px 'VT323', monospace";
+    ctx.fillText(t('gameCompleted'), width / 2, 264);
+
+    ctx.fillStyle = UI.dim;
+    ctx.font = "30px 'VT323', monospace";
+    ctx.fillText(t('totalScore'), width / 2, 332);
+
+    ctx.fillStyle = UI.success;
+    ctx.shadowColor = UI.success;
+    ctx.shadowBlur = 20;
+    ctx.font = "84px 'VT323', monospace";
+    ctx.fillText(String(total), width / 2, 408);
+
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = UI.dim;
+    ctx.font = "22px 'VT323', monospace";
+    ctx.fillText(new Date().toLocaleDateString(), width / 2, 452);
+
+    // řádkování, ať karta patří do stejné obrazovky jako hra
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.16)';
+    for (let y = 0; y < height; y += 3) ctx.fillRect(0, y, width, 1);
+
+    return canvas;
+}
+
+// Soubor se připravuje dopředu. Prohlížeče pouštějí schránku i systémové
+// sdílení jen v přímé reakci na klik — čekání na vykreslení uvnitř obsluhy
+// by to povolení zahodilo.
+let shareFile = null;
+
+function prepareScoreCard(total) {
+    shareFile = null;
+    renderScoreCard(total).toBlob((blob) => {
+        if (blob) shareFile = new File([blob], 'cutron.png', { type: 'image/png' });
+    }, 'image/png');
+}
+
+function shareScoreCard(button) {
+    const flash = (key) => {
+        button.innerText = t(key);
+        setTimeout(() => { button.innerText = t('share'); }, 2200);
+    };
+
+    if (!shareFile) { flash('shareFailed'); return; }
+
+    // Na telefonu dává smysl systémové sdílení (rovnou do chatu),
+    // na počítači schránka (vložit do zprávy).
+    if (isTouchDevice && navigator.canShare && navigator.canShare({ files: [shareFile] })) {
+        navigator.share({ files: [shareFile], title: 'Cutron' }).catch(() => {});
+        return;
+    }
+
+    if (navigator.clipboard && window.ClipboardItem) {
+        navigator.clipboard.write([new ClipboardItem({ 'image/png': shareFile })])
+            .then(() => flash('shareCopied'))
+            .catch(() => downloadScoreCard(flash));
+        return;
+    }
+
+    downloadScoreCard(flash);
+}
+
+function downloadScoreCard(flash) {
+    const url = URL.createObjectURL(shareFile);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'cutron.png';
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    flash('shareSaved');
+}
+
+function createResultButton(label, color, onClick) {
+    const button = document.createElement('button');
+    button.innerText = label;
+    Object.assign(button.style, {
+        fontFamily: UI.font, padding: '14px 22px', fontSize: '22px', cursor: 'pointer',
+        backgroundColor: 'transparent', color, border: `2px solid ${color}`, borderRadius: '0'
+    });
+    applyHoverFill(button, color);
+    button.onclick = onClick;
+    return button;
+}
+
+// Konec Boss levelu. Hra tím končí, takže se neukazuje zabrané území ani
+// skóre jednoho levelu — jen celkový součet za celou kampaň.
 function showBossVictory() {
     isGameOver = true;
     soundManager.stopEngine();
@@ -1576,35 +1705,27 @@ function showBossVictory() {
     saveProgress();
 
     const total = Object.values(progress.scores).reduce((sum, value) => sum + value, 0);
+    prepareScoreCard(total);
 
     resultOverlay.innerHTML = `
         <div style="font-family: ${UI.font}; color: ${UI.amber}; font-size: clamp(34px, 6vw, 68px); letter-spacing: 4px; text-shadow: ${UI.glow(UI.amber)};">${t('bossDefeated')}</div>
-        <div style="font-family: ${UI.font}; font-size: 24px; color: ${UI.text}; margin-top: 22px;">${t('captured').replace('%s', filledPercentage)}</div>
-        <div style="font-family: ${UI.font}; font-size: 26px; color: ${UI.success}; margin-top: 18px;">${t('score')}: ${score}</div>
-        <div style="font-family: ${UI.font}; font-size: clamp(28px, 4vw, 40px); color: ${UI.cyan}; margin-top: 26px; text-shadow: ${UI.glow(UI.cyan)};">${t('totalScore')}: ${total}</div>`;
+        <div style="font-family: ${UI.font}; font-size: clamp(20px, 3vw, 28px); color: ${UI.text}; margin-top: 20px;">${t('gameCompleted')}</div>
+        <div style="font-family: ${UI.font}; font-size: 24px; color: ${UI.dim}; margin-top: 40px; letter-spacing: 2px;">${t('totalScore')}</div>
+        <div style="font-family: ${UI.font}; font-size: clamp(40px, 7vw, 76px); color: ${UI.success}; text-shadow: ${UI.glow(UI.success)};">${total}</div>`;
 
     const btnContainer = document.createElement('div');
-    Object.assign(btnContainer.style, { marginTop: '40px', display: 'flex', gap: '20px' });
+    Object.assign(btnContainer.style, { marginTop: '44px', display: 'flex', gap: '20px' });
 
-    const againBtn = document.createElement('button');
-    againBtn.innerText = t('playAgain');
-    Object.assign(againBtn.style, {
-        fontFamily: UI.font, padding: '14px 22px', fontSize: '22px', cursor: 'pointer',
-        backgroundColor: 'transparent', color: UI.cyan, border: `2px solid ${UI.cyan}`, borderRadius: '0'
+    const menuBtn = createResultButton(t('mainMenu'), UI.dim, () => {
+        soundManager.playSFX('click');
+        quitToMenu();
     });
-    applyHoverFill(againBtn, UI.cyan);
-    againBtn.onclick = () => { soundManager.playSFX('click'); startLevel(BOSS_LEVEL_ID); };
-
-    const menuBtn = document.createElement('button');
-    menuBtn.innerText = t('mainMenu');
-    Object.assign(menuBtn.style, {
-        fontFamily: UI.font, padding: '14px 22px', fontSize: '22px', cursor: 'pointer',
-        backgroundColor: 'transparent', color: UI.dim, border: `2px solid ${UI.dim}`, borderRadius: '0'
+    const shareBtn = createResultButton(t('share'), UI.cyan, () => {
+        soundManager.playSFX('click');
+        shareScoreCard(shareBtn);
     });
-    applyHoverFill(menuBtn, UI.dim);
-    menuBtn.onclick = () => { soundManager.playSFX('click'); quitToMenu(); };
 
-    btnContainer.append(againBtn, menuBtn);
+    btnContainer.append(menuBtn, shareBtn);
     resultOverlay.appendChild(btnContainer);
 }
 
@@ -4374,12 +4495,15 @@ function animate() {
         soundManager.setEngineSpeed(Math.min(fastest / BASE_MAX_SPEED, 1));
     }
 
-    for (let enemy of enemies) enemy.update(delta);
+    // Během rozpadu Bosse se aréna zastaví. Patří to jemu, ne pobíhajícím
+    // nepřátelům a doletujícím koulím.
+    if (!bossFinale) {
+        for (let enemy of enemies) enemy.update(delta);
+        for (const generator of generators) generator.update(delta);
+    }
 
-    // během finále Bosse řídí rozpad, ne jeho vlastní pohyb
     if (boss && !boss.isDead && !bossFinale) boss.update(delta);
     if (bossFinale) updateBossFinale(delta);
-    for (const generator of generators) generator.update(delta);
     
     for (let i = fireballs.length - 1; i >= 0; i--) {
         fireballs[i].update(delta);
