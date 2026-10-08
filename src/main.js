@@ -97,7 +97,7 @@ const LEVELS_CONFIG = [
 const BOSS_LEVEL_ID = 9;
 const BOSS_LEVEL_CONFIG = {
     id: BOSS_LEVEL_ID, target: 80, time: 240,
-    bouncers: 2, eaters: 0, bombers: 0, maxMines: 0, pillars: 4, boss: true
+    bouncers: 0, eaters: 1, bombers: 3, maxMines: 0, pillars: 0, boss: true
 };
 const TOTAL_LEVEL_COUNT = LEVELS_CONFIG.length + 1;
 const levelConfigById = (id) =>
@@ -143,9 +143,14 @@ const i18n = {
         helpTouchJoystick: "Joystick se objeví tam, kde přiložíš prst. V Nastavení se dá přepnout na pevné šipky.",
         helpObjects: "Předměty",
         helpEnemies: "Nepřátelé",
-        heartName: "Srdce",
-        heartDesc: "Objeví se jen zřídka a jen na zabrané ploše. Sebráním získáš život navíc, nejvýš však pět. Zmizí, pokud pod ním plocha přestane být tvoje.",
+        lifeName: "Kříž života",
+        lifeDesc: "Objeví se jen zřídka a jen na zabrané ploše. Sebráním získáš život navíc, nejvýš však pět. Zmizí, pokud pod ním plocha přestane být tvoje.",
+        clockName: "Přesýpací hodiny",
+        clockDesc: "Stejně vzácné jako kříž života a taky jen na zabrané ploše. Sebráním si přidáš 10 sekund. Zmizí, pokud pod nimi plocha přestane být tvoje.",
         bossLevel: "Boss level",
+        bossBriefingOk: "Jdu na to",
+        bossDefeated: "BOSS PORAŽEN",
+        totalScore: "Celkové skóre",
         bossIntro: "Uprostřed arény se probral Boss. Míří pomalu přímo k tobě a zabranou plochu drtí jako tank. Nabíjejí ho čtyři generátory — zaber plochu kolem generátoru a umlčíš ho. Jakmile budeš mít 80 % arény, Boss vybuchne.",
         reasonBossHit: "Boss tě rozdrtil!",
         reasonBossTrail: "Boss projel tvou brázdou!",
@@ -217,9 +222,14 @@ const i18n = {
         helpTouchJoystick: "The joystick appears wherever you put your finger. You can switch to fixed arrows in Settings.",
         helpObjects: "Objects",
         helpEnemies: "Enemies",
-        heartName: "Heart",
-        heartDesc: "Appears rarely and only on captured ground. Picking it up grants an extra life, up to five. It vanishes if the ground beneath it stops being yours.",
+        lifeName: "Life cross",
+        lifeDesc: "Appears rarely and only on captured ground. Picking it up grants an extra life, up to five. It vanishes if the ground beneath it stops being yours.",
+        clockName: "Hourglass",
+        clockDesc: "As rare as the life cross and likewise only on captured ground. Picking it up adds 10 seconds to the clock. It vanishes if the ground beneath it stops being yours.",
         bossLevel: "Boss level",
+        bossBriefingOk: "Let's go",
+        bossDefeated: "BOSS DEFEATED",
+        totalScore: "Total score",
         bossIntro: "A Boss has woken up in the middle of the arena. It crawls straight at you and grinds captured ground like a tank. Four generators keep it charged — capture the ground around a generator to silence it. Once you hold 80 % of the arena, the Boss blows up.",
         reasonBossHit: "The boss crushed you!",
         reasonBossTrail: "The boss drove through your trail!",
@@ -466,6 +476,79 @@ const btnBackMenu = createMenuButton('back', () => {
 btnBackMenu.style.marginTop = '50px';
 levelSelectUI.appendChild(btnBackMenu);
 
+// --- ÚVOD BOSS LEVELU ---
+// Hláška přes rozjetou hru se nedala v klidu přečíst. Po kliknutí na dlaždici
+// proto obrazovka zčerná, text se pozvolna objeví a level začne teprve
+// potvrzením — do té doby se nehýbe nic.
+const bossBriefing = document.createElement('div');
+Object.assign(bossBriefing.style, {
+    position: 'absolute', top: '0', left: '0', width: '100%', height: '100%',
+    display: 'none', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#000000', pointerEvents: 'auto', zIndex: '250', padding: '0 24px'
+});
+uiContainer.appendChild(bossBriefing);
+
+const bossBriefingTitle = document.createElement('div');
+bossBriefingTitle.dataset.textKey = 'bossLevel';
+Object.assign(bossBriefingTitle.style, {
+    fontFamily: UI.font, fontSize: 'clamp(34px, 7vw, 72px)', letterSpacing: '8px',
+    color: UI.danger, textShadow: UI.glow(UI.danger), marginBottom: '30px',
+    opacity: '0', transition: 'opacity 1.2s ease-in'
+});
+
+const bossBriefingText = document.createElement('div');
+bossBriefingText.dataset.textKey = 'bossIntro';
+Object.assign(bossBriefingText.style, {
+    fontFamily: UI.font, fontSize: 'clamp(18px, 2.4vw, 25px)', color: UI.text,
+    lineHeight: '1.6', maxWidth: '640px', textAlign: 'center',
+    opacity: '0', transition: 'opacity 1.6s ease-in'
+});
+
+const bossBriefingBtn = createMenuButton('bossBriefingOk', () => confirmBossBriefing());
+Object.assign(bossBriefingBtn.style, {
+    color: UI.danger, borderColor: UI.danger, marginTop: '44px', marginBottom: '0',
+    opacity: '0', transition: 'opacity 0.8s ease-in', pointerEvents: 'none'
+});
+applyHoverFill(bossBriefingBtn, UI.danger);
+
+bossBriefing.append(bossBriefingTitle, bossBriefingText, bossBriefingBtn);
+
+let briefingTimers = [];
+
+function openBossBriefing() {
+    briefingTimers.forEach(clearTimeout);
+    briefingTimers = [];
+
+    // cokoli běželo předtím, během čtení stojí
+    gameState = 'MENU';
+    soundManager.stopEngine();
+
+    menuUI.style.display = 'none';
+    levelSelectUI.style.display = 'none';
+    resultOverlay.style.display = 'none';
+    gameUI.style.display = 'none';
+    bossBriefing.style.display = 'flex';
+
+    bossBriefingTitle.style.opacity = '0';
+    bossBriefingText.style.opacity = '0';
+    bossBriefingBtn.style.opacity = '0';
+    bossBriefingBtn.style.pointerEvents = 'none';
+
+    briefingTimers.push(setTimeout(() => { bossBriefingTitle.style.opacity = '1'; }, 400));
+    briefingTimers.push(setTimeout(() => { bossBriefingText.style.opacity = '1'; }, 1500));
+    briefingTimers.push(setTimeout(() => {
+        bossBriefingBtn.style.opacity = '1';
+        bossBriefingBtn.style.pointerEvents = 'auto';
+    }, 3300));
+}
+
+function confirmBossBriefing() {
+    briefingTimers.forEach(clearTimeout);
+    briefingTimers = [];
+    bossBriefing.style.display = 'none';
+    startLevel(BOSS_LEVEL_ID);
+}
+
 // --- OBSAH NÁPOVĚDY (chování odpovídá třídám Bouncer/Eater/Bomber/Fireball/Item) ---
 const HELP_ENTRIES = [
     {
@@ -504,8 +587,12 @@ const HELP_ENTRIES = [
         en: { name: 'Mine', desc: 'Appears inside captured territory. Come within 4 cells and a 5 second countdown starts — then it explodes, destroying a circle with a radius of 7 cells and killing you if you are inside it.' }
     },
     {
-        section: 'objects', shape: 'heart', color: '#e8174a',
-        useKeys: { name: 'heartName', desc: 'heartDesc' }
+        section: 'objects', shape: 'cross', color: '#ff2d95',
+        useKeys: { name: 'lifeName', desc: 'lifeDesc' }
+    },
+    {
+        section: 'objects', shape: 'hourglass', color: '#ffc93c',
+        useKeys: { name: 'clockName', desc: 'clockDesc' }
     }
 ];
 
@@ -518,8 +605,13 @@ function enemyShapeSvg(entry) {
         body = `<polygon points="22,6 36,14 36,30 22,38 8,30 8,14" fill="${entry.color}"${stroke}/>`;
     } else if (entry.shape === 'diamond') {
         body = `<polygon points="22,5 39,22 22,39 5,22" fill="${entry.color}"${stroke}/>`;
-    } else if (entry.shape === 'heart') {
-        return pixelIcon('heart', entry.color, 5);
+    } else if (entry.shape === 'cross') {
+        body = `<ellipse cx="22" cy="38" rx="13" ry="4" fill="none" stroke="${entry.color}" stroke-width="1.5" opacity="0.5"/>`
+             + `<polygon points="17,5 27,5 27,15 37,15 37,25 27,25 27,35 17,35 17,25 7,25 7,15 17,15" fill="#15151f" stroke="${entry.color}" stroke-width="2.5" stroke-linejoin="round"/>`;
+    } else if (entry.shape === 'hourglass') {
+        body = `<ellipse cx="22" cy="39" rx="12" ry="4" fill="none" stroke="${entry.color}" stroke-width="1.5" opacity="0.5"/>`
+             + `<polygon points="9,5 35,5 22,21" fill="#15151f" stroke="${entry.color}" stroke-width="2.5" stroke-linejoin="round"/>`
+             + `<polygon points="22,21 35,37 9,37" fill="#15151f" stroke="${entry.color}" stroke-width="2.5" stroke-linejoin="round"/>`;
     } else if (entry.shape === 'boss') {
         // jádro v otáčející se kleci, jak boss vypadá ve hře
         body = `<polygon points="22,3 41,22 22,41 3,22" fill="none" stroke="${entry.stroke}" stroke-width="1.5" opacity="0.6"/>`
@@ -1047,13 +1139,13 @@ Object.assign(flashOverlay.style, {
 });
 uiContainer.appendChild(flashOverlay);
 
-function flashScreen() {
+function flashScreen(holdMs = 40, fadeSeconds = 1.6) {
     flashOverlay.style.transition = 'none';
     flashOverlay.style.opacity = '1';
     setTimeout(() => {
-        flashOverlay.style.transition = 'opacity 1.6s ease-out';
+        flashOverlay.style.transition = `opacity ${fadeSeconds}s ease-out`;
         flashOverlay.style.opacity = '0';
-    }, 40);
+    }, holdMs);
 }
 
 function showNotice(textKey) {
@@ -1296,7 +1388,7 @@ function openLevelSelect() {
 
     if (bossUnlocked) {
         applyHoverFill(bossBox, UI.danger);
-        bossBox.onclick = () => { soundManager.playSFX('click'); startLevel(BOSS_LEVEL_ID); };
+        bossBox.onclick = () => { soundManager.playSFX('click'); openBossBriefing(); };
     }
     levelGrid.appendChild(bossBox);
 }
@@ -1390,6 +1482,58 @@ function quitToMenu() {
     menuUI.style.display = 'flex';
 }
 
+const levelScore = () =>
+    Math.floor(filledPercentage * timeRemaining * (players[0] ? players[0].lives : 1) * currentLevelId);
+
+// Konec Boss levelu. Místo obvyklé výhry se sčítá skóre z celé kampaně
+// — Boss je její finále, ne další level v řadě.
+function showBossVictory() {
+    isGameOver = true;
+    soundManager.stopEngine();
+    soundManager.stopGameMusic();
+    soundManager.playSFX('victory');
+    resultOverlay.style.display = 'flex';
+    controlsUI.style.display = 'none';
+
+    const score = levelScore();
+    if (!progress.scores[currentLevelId] || score > progress.scores[currentLevelId]) {
+        progress.scores[currentLevelId] = score;
+    }
+    saveProgress();
+
+    const total = Object.values(progress.scores).reduce((sum, value) => sum + value, 0);
+
+    resultOverlay.innerHTML = `
+        <div style="font-family: ${UI.font}; color: ${UI.amber}; font-size: clamp(34px, 6vw, 68px); letter-spacing: 4px; text-shadow: ${UI.glow(UI.amber)};">${t('bossDefeated')}</div>
+        <div style="font-family: ${UI.font}; font-size: 24px; color: ${UI.text}; margin-top: 22px;">${t('captured').replace('%s', filledPercentage)}</div>
+        <div style="font-family: ${UI.font}; font-size: 26px; color: ${UI.success}; margin-top: 18px;">${t('score')}: ${score}</div>
+        <div style="font-family: ${UI.font}; font-size: clamp(28px, 4vw, 40px); color: ${UI.cyan}; margin-top: 26px; text-shadow: ${UI.glow(UI.cyan)};">${t('totalScore')}: ${total}</div>`;
+
+    const btnContainer = document.createElement('div');
+    Object.assign(btnContainer.style, { marginTop: '40px', display: 'flex', gap: '20px' });
+
+    const againBtn = document.createElement('button');
+    againBtn.innerText = t('playAgain');
+    Object.assign(againBtn.style, {
+        fontFamily: UI.font, padding: '14px 22px', fontSize: '22px', cursor: 'pointer',
+        backgroundColor: 'transparent', color: UI.cyan, border: `2px solid ${UI.cyan}`, borderRadius: '0'
+    });
+    applyHoverFill(againBtn, UI.cyan);
+    againBtn.onclick = () => { soundManager.playSFX('click'); startLevel(BOSS_LEVEL_ID); };
+
+    const menuBtn = document.createElement('button');
+    menuBtn.innerText = t('mainMenu');
+    Object.assign(menuBtn.style, {
+        fontFamily: UI.font, padding: '14px 22px', fontSize: '22px', cursor: 'pointer',
+        backgroundColor: 'transparent', color: UI.dim, border: `2px solid ${UI.dim}`, borderRadius: '0'
+    });
+    applyHoverFill(menuBtn, UI.dim);
+    menuBtn.onclick = () => { soundManager.playSFX('click'); quitToMenu(); };
+
+    btnContainer.append(againBtn, menuBtn);
+    resultOverlay.appendChild(btnContainer);
+}
+
 function showResult(isWin, reasonKey = "") {
     isGameOver = true;
     soundManager.stopEngine();
@@ -1399,8 +1543,8 @@ function showResult(isWin, reasonKey = "") {
     
     let scoreHTML = '';
     if (isWin) {
-        const score = Math.floor(filledPercentage * timeRemaining * (players[0] ? players[0].lives : 1) * currentLevelId);
-        
+        const score = levelScore();
+
         if (!progress.scores[currentLevelId] || score > progress.scores[currentLevelId]) {
             progress.scores[currentLevelId] = score;
         }
@@ -1431,7 +1575,12 @@ function showResult(isWin, reasonKey = "") {
             backgroundColor: 'transparent', color: UI.success, border: `2px solid ${UI.success}`, borderRadius: '0'
         });
         applyHoverFill(nextBtn, UI.success);
-        nextBtn.onclick = () => { soundManager.playSFX('click'); startLevel(currentLevelId + 1); };
+        nextBtn.onclick = () => {
+            soundManager.playSFX('click');
+            // i cesta „další level“ po osmičce vede přes úvodní obrazovku
+            if (currentLevelId + 1 === BOSS_LEVEL_ID) openBossBriefing();
+            else startLevel(currentLevelId + 1);
+        };
         btnContainer.appendChild(nextBtn);
     }
     
@@ -1662,8 +1811,8 @@ function resetGrid() {
 // --- ZÁCHRANNÉ PILÍŘE ---
 // Ostrůvky už zvednuté plochy uvnitř arény. Patří hráči, takže se o ně dá
 // uzavřít brázda — hráč se nemusí s každým tahem vracet až k okraji.
-const PILLAR_CELL_RADIUS = 2.6;      // osmiboký ostrůvek o průměru pěti polí
-const PILLAR_MIN_GAP = 20;           // v polích, aby pilíře nesrostly v jeden
+const PILLAR_CELL_RADIUS = 3.4;      // osmiboký ostrůvek o průměru sedmi polí
+const PILLAR_MIN_GAP = 22;           // v polích, aby pilíře nesrostly v jeden
 const PILLAR_MIN_FROM_START = 16;    // start hráče musí zůstat na volné ploše
 
 function createRescuePillars(count, player) {
@@ -2064,79 +2213,120 @@ const MINE_COLOR_URGENT = 0xf2ffd0;
 const mineEdgeMaterial = new THREE.LineBasicMaterial({ color: MINE_COLOR });
 const mineRingGeometry = new THREE.RingGeometry(MINE_RADIUS * 0.78, MINE_RADIUS * 1.15, 8);
 
-// --- SRDCE: život navíc ---
-// Model se skládá ze stejné pixelové mřížky jako ikona života v HUD, jen
-// vytažené do hloubky. Slučuje se do jediné geometrie, takže i s obrysem
-// jsou to dvě vykreslovací volání bez ohledu na počet kostiček.
-// Model srdce se skládá jen z VNĚJŠÍCH stěn. Kdyby se slepily celé kostky,
-// zůstaly by uvnitř stěny mezi sousedy a černá skořápka by je prosvítala —
-// obrys by pak lemoval každou kostičku místo obvodu celého srdce.
-// `expand` nafoukne kostičky na místě, čímž vznikne skořápka pro obrys.
-function createVoxelHeartGeometry(expand = 0) {
-    const rows = ICON_PIXELS.heart;
-    const width = rows[0].length;
-    const height = rows.length;
-    const pixel = CELL_SIZE * 0.32;
-    const half = pixel / 2 + expand;
-    const halfDepth = pixel * 1.5 + expand;
+// --- SBÍRATELNÉ PŘEDMĚTY ---
+// Kříž života a přesýpací hodiny. Oba jsou stavěné ze stejných dílů jako
+// mina: tmavé těleso, svítivý obrys a prstenec ležící na zemi. Geometrie
+// i materiály se sdílejí, takže je jedno, kolik jich zrovna na ploše je.
 
-    const filled = (x, y) => x >= 0 && x < width && y >= 0 && y < height && rows[y][x] === 'X';
+function createCrossGeometry() {
+    const arm = CELL_SIZE * 1.9;     // půlka délky ramene
+    const thickness = CELL_SIZE * 0.66;
+    const shape = new THREE.Shape();
 
-    const positions = [];
-    const quad = (a, b, c, d) => positions.push(...a, ...b, ...c, ...a, ...c, ...d);
+    shape.moveTo(-thickness, -arm);
+    shape.lineTo(thickness, -arm);
+    shape.lineTo(thickness, -thickness);
+    shape.lineTo(arm, -thickness);
+    shape.lineTo(arm, thickness);
+    shape.lineTo(thickness, thickness);
+    shape.lineTo(thickness, arm);
+    shape.lineTo(-thickness, arm);
+    shape.lineTo(-thickness, thickness);
+    shape.lineTo(-arm, thickness);
+    shape.lineTo(-arm, -thickness);
+    shape.lineTo(-thickness, -thickness);
+    shape.closePath();
 
-    for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-            if (!filled(x, y)) continue;
-
-            const centerX = (x - (width - 1) / 2) * pixel;
-            const centerY = ((height - 1) / 2 - y) * pixel;
-            const x0 = centerX - half, x1 = centerX + half;
-            const y0 = centerY - half, y1 = centerY + half;
-            const z0 = -halfDepth, z1 = halfDepth;
-
-            // čelo a záda má každá kostička vždy
-            quad([x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]);
-            quad([x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0]);
-
-            // boky jen tam, kde soused chybí
-            if (!filled(x + 1, y)) quad([x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1]);
-            if (!filled(x - 1, y)) quad([x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]);
-            if (!filled(x, y + 1)) quad([x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]);
-            if (!filled(x, y - 1)) quad([x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0]);
-        }
-    }
-
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geometry.computeVertexNormals();
+    const geometry = new THREE.ExtrudeGeometry(shape, { depth: CELL_SIZE * 0.7, bevelEnabled: false });
+    geometry.center();
     return geometry;
 }
 
-const heartGeometry = createVoxelHeartGeometry();
-const heartOutlineGeometry = createVoxelHeartGeometry(CELL_SIZE * 0.085);
-const heartMaterial = new THREE.MeshBasicMaterial({ color: 0xe8174a, side: THREE.DoubleSide });
-// obrys obrácenou skořápkou — černá silueta kolem celého tvaru
-const heartOutlineMaterial = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.BackSide });
+// Dva kužely proti sobě. Spojené do jedné geometrie kvůli obrysu —
+// jinak by hrany lemovaly každou polovinu zvlášť.
+function createHourglassGeometry() {
+    const radius = CELL_SIZE * 1.5;
+    const height = CELL_SIZE * 1.75;
+    const top = new THREE.ConeGeometry(radius, height, 6);
+    top.rotateX(Math.PI);
+    top.translate(0, height / 2, 0);
+    const bottom = new THREE.ConeGeometry(radius, height, 6);
+    bottom.translate(0, -height / 2, 0);
+    return mergeGeometries([top, bottom], false);
+}
 
+const PICKUP_RING_GEOMETRY = new THREE.RingGeometry(CELL_SIZE * 1.7, CELL_SIZE * 2.4, 8);
+const TIME_BONUS_SECONDS = 10;
 const MAX_LIVES = 5;
-// Miny padají každé 4–6 s, srdce má být vzácnost — proto desítky sekund
-// a pokaždé jinak, aby se nedalo odpočítávat.
-const randomHeartDelay = () => 40 + Math.random() * 50;
-const activeHearts = [];
-let heartSpawnTimer = 0;
-let heartSpawnDelay = randomHeartDelay();
 
-class HeartPickup {
-    constructor(x, z) {
+const crossGeometry = createCrossGeometry();
+const hourglassGeometry = createHourglassGeometry();
+
+// Dvojí tep jako srdce (tep-tep, pauza) pro kříž, klidné dýchání pro hodiny.
+function heartbeat(phase) {
+    const beat = (t) => (t < 0 || t > 1 ? 0 : Math.pow(1 - t, 3));
+    return Math.max(beat(phase / 0.18), beat((phase - 0.26) / 0.2) * 0.75);
+}
+
+// Tělo není úplně černé, ale v nejtmavším odstínu vlastní barvy — pod CRT
+// filtrem se pak předmět pozná i tam, kde se tenký obrys ztratí.
+const PICKUP_TYPES = {
+    life: {
+        color: 0xff2d95,
+        geometry: crossGeometry,
+        edges: new THREE.EdgesGeometry(crossGeometry),
+        body: new THREE.MeshBasicMaterial({ color: 0x3d0c24 }),
+        sparks: [0xff2d95, 0xffc4e2],
+        canTake: (player) => player.lives < MAX_LIVES,
+        take: (player) => { player.lives++; }
+    },
+    time: {
+        color: 0xffc93c,
+        geometry: hourglassGeometry,
+        edges: new THREE.EdgesGeometry(hourglassGeometry),
+        body: new THREE.MeshBasicMaterial({ color: 0x3a2c08 }),
+        sparks: [0xffc93c, 0xfff6d8],
+        canTake: () => true,
+        take: () => { timeRemaining += TIME_BONUS_SECONDS; }
+    }
+};
+
+// Miny padají každé 4–6 s, tohle mají být vzácnosti — proto desítky sekund
+// a pokaždé jinak, aby se nedalo odpočítávat.
+const randomPickupDelay = () => 40 + Math.random() * 50;
+const activePickups = [];
+const pickupTimers = {
+    life: { timer: 0, delay: randomPickupDelay() },
+    time: { timer: 0, delay: randomPickupDelay() }
+};
+
+class Pickup {
+    constructor(kind, x, z) {
+        this.kind = kind;
+        this.config = PICKUP_TYPES[kind];
         this.isDead = false;
         this.bob = Math.random() * Math.PI * 2;
+        this.pulsePhase = 0;
+        this.sandTimer = 0;
 
         this.mesh = new THREE.Group();
         this.mesh.position.set(x, BLOCK_HEIGHT + 0.5, z);
 
-        const outline = new THREE.Mesh(heartOutlineGeometry, heartOutlineMaterial);
-        this.mesh.add(outline, new THREE.Mesh(heartGeometry, heartMaterial));
+        this.body = new THREE.Mesh(this.config.geometry, this.config.body);
+        this.body.add(new THREE.LineSegments(
+            this.config.edges,
+            new THREE.LineBasicMaterial({ color: this.config.color })
+        ));
+        this.mesh.add(this.body);
+
+        this.ringMaterial = new THREE.MeshBasicMaterial({
+            color: this.config.color, transparent: true, opacity: 0.4,
+            blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
+        });
+        this.ring = new THREE.Mesh(PICKUP_RING_GEOMETRY, this.ringMaterial);
+        this.ring.rotation.x = -Math.PI / 2;
+        this.ring.position.y = -0.42;
+        this.mesh.add(this.ring);
 
         sceneGroup.add(this.mesh);
     }
@@ -2149,9 +2339,30 @@ class HeartPickup {
     update(delta) {
         if (this.isDead) return;
 
-        this.mesh.rotation.y += 1.5 * delta;
+        this.mesh.rotation.y += 1.1 * delta;
         this.bob += delta * 2.2;
         this.mesh.position.y = BLOCK_HEIGHT + 0.5 + Math.sin(this.bob) * 0.09;
+
+        // kříž tepe, hodinám jen klidně dýchá prstenec
+        this.pulsePhase = (this.pulsePhase + delta / (this.kind === 'life' ? 1.1 : 2.2)) % 1;
+        const pulse = this.kind === 'life'
+            ? heartbeat(this.pulsePhase)
+            : Math.sin(this.pulsePhase * Math.PI * 2) * 0.5 + 0.5;
+        this.ring.scale.setScalar(1 + pulse * 0.18);
+        this.ringMaterial.opacity = 0.25 + pulse * 0.45;
+        if (this.kind === 'life') this.body.scale.setScalar(1 + pulse * 0.07);
+
+        // zrnka propadávající hrdlem hodin
+        if (this.kind === 'time') {
+            this.sandTimer -= delta;
+            if (this.sandTimer <= 0) {
+                this.sandTimer = 0.12;
+                spawnParticle(
+                    this.mesh.position.x, this.mesh.position.y, this.mesh.position.z,
+                    0, -0.9, 0, 0.3, 0xfff6d8
+                );
+            }
+        }
 
         const gridX = Math.floor((this.mesh.position.x + (ARENA_SIZE / 2)) / CELL_SIZE);
         const gridZ = Math.floor((this.mesh.position.z + (ARENA_SIZE / 2)) / CELL_SIZE);
@@ -2161,13 +2372,13 @@ class HeartPickup {
         }
 
         for (const target of players) {
-            if (target.isRespawning || target.lives >= MAX_LIVES) continue;
+            if (target.isRespawning || !this.config.canTake(target)) continue;
             const dx = target.group.position.x - this.mesh.position.x;
             const dz = target.group.position.z - this.mesh.position.z;
             if (Math.hypot(dx, dz) < CELL_SIZE * 2.4) {
-                target.lives++;
+                this.config.take(target);
                 soundManager.playSFX('pickup');
-                createExplosion(this.mesh.position.x, this.mesh.position.y, this.mesh.position.z, 24, [0xe8174a, 0xff7da0]);
+                createExplosion(this.mesh.position.x, this.mesh.position.y, this.mesh.position.z, 24, this.config.sparks);
                 this.remove();
                 updateHUD();
                 return;
@@ -2640,6 +2851,7 @@ const BOSS_RADIUS = CELL_SIZE * 4;
 const BOSS_SPEED = 1.15;
 const BOSS_SPEED_GRINDING = 0.5;     // při drcení plochy ještě zvolní
 const BOSS_FIRE_INTERVAL = 10;
+const BOSS_VOLLEY = 12;              // koulí v jedné salvě
 const BOSS_WARNING_TIME = 1.3;       // zatřesení jako varování před salvou
 const BOSS_CRUSH_CELLS = 4;
 const BOSS_COLOR = 0xff2a2a;
@@ -2848,13 +3060,14 @@ class Boss {
         return destroyed;
     }
 
+    // Salva je plná, dokud Bosse nabíjí aspoň jeden generátor. Umlčení
+    // generátoru tedy nezeslabuje palbu — teprve ten poslední ji zastaví.
     fire() {
-        const count = 3 * activeGeneratorCount();
-        if (count <= 0) return;
+        if (activeGeneratorCount() <= 0) return;
 
         soundManager.playSFX('explosion');
-        for (let i = 0; i < count; i++) {
-            const angle = (i / count) * Math.PI * 2;
+        for (let i = 0; i < BOSS_VOLLEY; i++) {
+            const angle = (i / BOSS_VOLLEY) * Math.PI * 2;
             fireballs.push(new Fireball(
                 this.mesh.position.x + Math.cos(angle) * this.radius,
                 this.mesh.position.z + Math.sin(angle) * this.radius,
@@ -2876,7 +3089,8 @@ class Boss {
         }
         sceneGroup.remove(this.mesh);
         cameraShakeTime = 1.4;
-        flashScreen();
+        // bílá chvíli drží a pak pomalu doznívá, aby se z ní vynořil výsledek
+        flashScreen(500, 2.4);
     }
 
     update(delta) {
@@ -2935,6 +3149,97 @@ class Boss {
     }
 }
 
+// --- KONEC BOSS LEVELU ---
+// Pomalý rozpad místo obyčejné výhry: Boss se roztřese jako před salvou,
+// ze středu mu postupně vyrážejí bílé paprsky a teprve pak vybuchne.
+const BOSS_FINALE_BUILDUP = 3.2;
+const BOSS_FINALE_RAY_INTERVAL = 0.24;
+const BOSS_FINALE_RAY_SPEED = 5;
+const BOSS_RAY_GEOMETRY = new THREE.BoxGeometry(1, 0.06, 0.06);
+BOSS_RAY_GEOMETRY.translate(0.5, 0, 0); // paprsek roste ze středu ven
+const BOSS_RAY_MATERIAL = new THREE.MeshBasicMaterial({
+    color: 0xffffff, transparent: true, opacity: 0.8,
+    blending: THREE.AdditiveBlending, depthWrite: false
+});
+const BOSS_RAY_AXIS = new THREE.Vector3(1, 0, 0);
+
+let bossFinale = null;
+
+function startBossFinale() {
+    if (!boss || boss.isDead || bossFinale) return;
+
+    isWinAnimating = true;
+    winAnimationPlayer = null; // dron nestoupá a nelétají ohňostroje
+    soundManager.stopEngine();
+    soundManager.stopGameMusic();
+    players.forEach((p) => {
+        p.velocityX = 0; p.velocityZ = 0;
+        p.lastGridX = -1; p.lastGridZ = -1;
+    });
+
+    const group = new THREE.Group();
+    group.position.copy(boss.mesh.position);
+    sceneGroup.add(group);
+    bossFinale = { time: 0, nextRay: 0.4, rays: [], group };
+}
+
+function updateBossFinale(delta) {
+    const finale = bossFinale;
+    finale.time += delta;
+    const progress = Math.min(finale.time / BOSS_FINALE_BUILDUP, 1);
+
+    if (boss && !boss.isDead) {
+        const amplitude = 0.08 + progress * 0.5;
+        boss.core.position.set(
+            (Math.random() - 0.5) * amplitude,
+            (Math.random() - 0.5) * amplitude,
+            (Math.random() - 0.5) * amplitude
+        );
+        boss.cage.rotation.y -= (0.6 + progress * 7) * delta;
+        boss.ringMaterial.opacity = 0.3 + progress * 0.6;
+        boss.ring.scale.setScalar(1 + progress * 0.6);
+    }
+
+    // paprsky přibývají čím dál rychleji
+    finale.nextRay -= delta;
+    if (finale.nextRay <= 0) {
+        finale.nextRay = BOSS_FINALE_RAY_INTERVAL * (1 - progress * 0.65);
+        const ray = new THREE.Mesh(BOSS_RAY_GEOMETRY, BOSS_RAY_MATERIAL);
+        const direction = new THREE.Vector3(
+            Math.random() * 2 - 1,
+            Math.random() * 1.4 - 0.3,
+            Math.random() * 2 - 1
+        ).normalize();
+        ray.quaternion.setFromUnitVectors(BOSS_RAY_AXIS, direction);
+        ray.scale.set(0.01, 1, 1);
+        finale.group.add(ray);
+        finale.rays.push(ray);
+        soundManager.playSFX('ray');
+    }
+
+    const width = 1 + progress * 3;
+    for (const ray of finale.rays) {
+        ray.scale.x = Math.min(ray.scale.x + BOSS_FINALE_RAY_SPEED * delta, 9);
+        ray.scale.y = width;
+        ray.scale.z = width;
+    }
+
+    cameraShakeTime = 0.1 + progress * 0.25;
+
+    if (finale.time >= BOSS_FINALE_BUILDUP) finishBossFinale();
+}
+
+function finishBossFinale() {
+    const finale = bossFinale;
+    bossFinale = null;
+
+    finale.rays.forEach((ray) => finale.group.remove(ray));
+    sceneGroup.remove(finale.group);
+
+    if (boss) boss.explode();
+    setTimeout(() => { isWinAnimating = false; showBossVictory(); }, 1200);
+}
+
 const enemies = [];
 const fireballs = [];
 const droneDebris = [];
@@ -2945,16 +3250,22 @@ function clearSceneEntities() {
     enemies.length = 0;
     generators.forEach(g => g.remove());
     generators.length = 0;
+    if (bossFinale) {
+        sceneGroup.remove(bossFinale.group);
+        bossFinale = null;
+    }
     if (boss) sceneGroup.remove(boss.mesh);
     boss = null;
     fireballs.forEach(f => sceneGroup.remove(f.mesh));
     fireballs.length = 0;
     activeItems.forEach(i => sceneGroup.remove(i.mesh));
     activeItems.length = 0;
-    activeHearts.forEach(h => sceneGroup.remove(h.mesh));
-    activeHearts.length = 0;
-    heartSpawnTimer = 0;
-    heartSpawnDelay = randomHeartDelay();
+    activePickups.forEach(p => sceneGroup.remove(p.mesh));
+    activePickups.length = 0;
+    Object.values(pickupTimers).forEach((slot) => {
+        slot.timer = 0;
+        slot.delay = randomPickupDelay();
+    });
     for (let i = 0; i < MAX_PARTICLES; i++) {
         if (particles[i].active) releaseParticle(i);
     }
@@ -3062,7 +3373,6 @@ function startLevel(levelId) {
     if (currentLevelConfig.boss) {
         GENERATOR_SPOTS.forEach(([gx, gz]) => generators.push(new Generator(gx, gz)));
         boss = new Boss(0, 0);
-        showNotice('bossIntro');
     }
 
     duelHud.style.display = 'none';
@@ -3150,6 +3460,12 @@ function recalculatePercentages() {
 const calculatePercentage = recalculatePercentages;
 
 function triggerWin() {
+    // Boss má vlastní, pomalejší konec — bez stoupajícího dronu a ohňostroje
+    if (boss && !boss.isDead) {
+        startBossFinale();
+        return;
+    }
+
     isWinAnimating = true;
     soundManager.stopEngine();
     soundManager.playSFX('victory');
@@ -3159,12 +3475,7 @@ function triggerWin() {
     hero.lastGridX = -1; hero.lastGridZ = -1;
     winAnimationPlayer = hero;
     createFireworks(hero.group.position.x, hero.group.position.y, hero.group.position.z);
-
-    // Zabraných 80 % Bosse roztrhá. Výbuch je ten konec levelu, takže
-    // výsledková obrazovka chvíli počká, než záblesk dohoří.
-    const bossFight = boss && !boss.isDead;
-    if (bossFight) boss.explode();
-    setTimeout(() => { isWinAnimating = false; showResult(true); }, bossFight ? 2800 : 2000);
+    setTimeout(() => { isWinAnimating = false; showResult(true); }, 2000);
 }
 
 function endDuel(winner, reasonKey) {
@@ -3677,6 +3988,16 @@ const duelLookTarget = new THREE.Vector3();
 // V kampani kamera sleduje jediný dron. V souboji musí udržet v záběru oba,
 // takže se vzdálenost dopočítává ze zorného úhlu a rozestupu hráčů.
 function updateCamera() {
+    // Rozpad Bosse je podívaná, ne hratelná situace — kamera se k němu
+    // během ní pomalu přitáhne, ať výbuch neutíká mimo obraz.
+    if (bossFinale && boss && !boss.isDead) {
+        cameraTargetPos.set(boss.mesh.position.x * 0.85, 11, boss.mesh.position.z * 0.85 + 11);
+        camera.position.lerp(cameraTargetPos, 0.03);
+        cameraLookAtTarget.lerp(boss.mesh.position, 0.05);
+        camera.lookAt(cameraLookAtTarget);
+        return;
+    }
+
     if (gameMode === 'duel' && players.length === 2) {
         const first = players[0].group.position;
         const second = players[1].group.position;
@@ -3813,21 +4134,25 @@ function animate() {
             }
         }
 
-        // Srdce je vzácné — objeví se jen občas, po jednom, a jen když
-        // má vůbec komu přidat život.
-        heartSpawnTimer += delta;
-        if (heartSpawnTimer > heartSpawnDelay && activeHearts.length === 0) {
-            heartSpawnTimer = 0;
-            heartSpawnDelay = randomHeartDelay();
-            if (players.some((p) => p.lives < MAX_LIVES)) {
-                const spot = findSpawnSpot(10, activeItems);
-                if (spot) activeHearts.push(new HeartPickup(spot.x, spot.z));
-            }
+        // Kříž i hodiny jsou vzácnost — objeví se jen občas, po jednom kuse
+        // od každého druhu, a kříž jen když má vůbec komu přidat život.
+        for (const kind of ['life', 'time']) {
+            const slot = pickupTimers[kind];
+            slot.timer += delta;
+            if (slot.timer <= slot.delay) continue;
+            if (activePickups.some((p) => p.kind === kind)) continue;
+
+            slot.timer = 0;
+            slot.delay = randomPickupDelay();
+            if (kind === 'life' && !players.some((p) => p.lives < MAX_LIVES)) continue;
+
+            const spot = findSpawnSpot(10, [...activeItems, ...activePickups]);
+            if (spot) activePickups.push(new Pickup(kind, spot.x, spot.z));
         }
 
-        for (let i = activeHearts.length - 1; i >= 0; i--) {
-            activeHearts[i].update(delta);
-            if (activeHearts[i].isDead) activeHearts.splice(i, 1);
+        for (let i = activePickups.length - 1; i >= 0; i--) {
+            activePickups[i].update(delta);
+            if (activePickups[i].isDead) activePickups.splice(i, 1);
         }
 
         for (let i = activeItems.length - 1; i >= 0; i--) {
@@ -3905,7 +4230,9 @@ function animate() {
 
     for (let enemy of enemies) enemy.update(delta);
 
-    if (boss && !boss.isDead) boss.update(delta);
+    // během finále Bosse řídí rozpad, ne jeho vlastní pohyb
+    if (boss && !boss.isDead && !bossFinale) boss.update(delta);
+    if (bossFinale) updateBossFinale(delta);
     for (const generator of generators) generator.update(delta);
     
     for (let i = fireballs.length - 1; i >= 0; i--) {

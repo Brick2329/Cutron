@@ -17,7 +17,9 @@ const SFX = {
     victory:   [.6, .05, 520, .02, .14, .3, 1, 1.5, , , 340, .06, .08, , , , , .8, .1],
     pickup:    [.6, .05, 537, .02, .08, .22, 1, 1.59, -6.98, 4.97, , , , , , , , .7, .05],
     // zásah do rozdělané brázdy — krátké prasknutí, po kterém se začne bortit
-    collapse:  [.55, .15, 150, .01, .08, .26, 4, 2.4, -6, , , , , 1.2, , .2, .05, .55, .14]
+    collapse:  [.55, .15, 150, .01, .08, .26, 4, 2.4, -6, , , , , 1.2, , .2, .05, .55, .14],
+    // paprsek vyrážející z Bosse při jeho rozpadu
+    ray:       [.35, .1, 980, , .02, .09, 2, 1.6, 12, , 420, .03, , , , , , .5, .02]
 };
 
 // Zvuk stopy se spouští při každé projeté buňce mřížky (i 60× za sekundu),
