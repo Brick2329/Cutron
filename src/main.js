@@ -149,9 +149,11 @@ const i18n = {
         clockDesc: "Stejně vzácné jako kříž života a taky jen na zabrané ploše. Sebráním si přidáš 10 sekund. Zmizí, pokud pod nimi plocha přestane být tvoje.",
         bossLevel: "Boss level",
         bossBriefingOk: "Jdu na to",
+        bossDisarmed: "Boss odzbrojen",
+        bossRecharging: "Boss se znovu nabíjí!",
         bossDefeated: "BOSS PORAŽEN",
         totalScore: "Celkové skóre",
-        bossIntro: "Uprostřed arény se probral Boss. Míří pomalu přímo k tobě a zabranou plochu drtí jako tank. Nabíjejí ho čtyři generátory — zaber plochu kolem generátoru a umlčíš ho. Jakmile budeš mít 80 % arény, Boss vybuchne.",
+        bossIntro: "Uprostřed arény se probral Boss. Míří pomalu přímo k tobě a zabranou plochu drtí jako tank. Nabíjejí ho čtyři generátory — zaber plochu kolem generátoru a umlčíš ho. Co ti ale Boss rozdrtí, to generátor zase probudí. Jakmile budeš mít 80 % arény, Boss vybuchne.",
         reasonBossHit: "Boss tě rozdrtil!",
         reasonBossTrail: "Boss projel tvou brázdou!",
         selectLevel: "Výběr Levelu",
@@ -228,9 +230,11 @@ const i18n = {
         clockDesc: "As rare as the life cross and likewise only on captured ground. Picking it up adds 10 seconds to the clock. It vanishes if the ground beneath it stops being yours.",
         bossLevel: "Boss level",
         bossBriefingOk: "Let's go",
+        bossDisarmed: "Boss disarmed",
+        bossRecharging: "The boss is recharging!",
         bossDefeated: "BOSS DEFEATED",
         totalScore: "Total score",
-        bossIntro: "A Boss has woken up in the middle of the arena. It crawls straight at you and grinds captured ground like a tank. Four generators keep it charged — capture the ground around a generator to silence it. Once you hold 80 % of the arena, the Boss blows up.",
+        bossIntro: "A Boss has woken up in the middle of the arena. It crawls straight at you and grinds captured ground like a tank. Four generators keep it charged — capture the ground around a generator to silence it, but whatever the Boss grinds away wakes that generator up again. Once you hold 80 % of the arena, the Boss blows up.",
         reasonBossHit: "The boss crushed you!",
         reasonBossTrail: "The boss drove through your trail!",
         selectLevel: "Select Level",
@@ -580,8 +584,8 @@ const HELP_ENTRIES = [
     },
     {
         section: 'enemies', shape: 'pylon', color: '#9d5bff',
-        cz: { name: 'Generátor', desc: 'Čtyři z nich nabíjejí Bosse. Dokud je naživu aspoň jeden, Boss každých 10 sekund vystřelí ohnivé koule do všech stran — pozná se to podle krátkého zatřesení. Zaber plochu kolem generátoru a nadobro ho umlčíš.' },
-        en: { name: 'Generator', desc: 'Four of them keep the Boss charged. While even one is alive, the Boss fires a ring of fireballs every 10 seconds — a brief shudder gives it away. Capture the ground around a generator to silence it for good.' }
+        cz: { name: 'Generátor', desc: 'Čtyři z nich nabíjejí Bosse. Dokud je naživu aspoň jeden, Boss každých 10 sekund vystřelí ohnivé koule do všech stran — ohlásí to stoupající tón, třes a vlny vybíhající od něj ven. Zaber plochu kolem generátoru a umlčíš ho. Jakmile ji ale Boss zase rozdrtí, generátor se probudí.' },
+        en: { name: 'Generator', desc: 'Four of them keep the Boss charged. While even one is alive, the Boss fires a ring of fireballs every 10 seconds — a rising tone, a shudder and waves rolling outwards give it away. Capture the ground around a generator to silence it. Grind that ground away and it wakes back up.' }
     },
     {
         section: 'objects', shape: 'mine', color: '#c6ff2e',
@@ -928,8 +932,9 @@ function createHudItem(iconName, iconColor) {
 const livesHud = createHudItem('heart', UI.danger);
 const percentHud = createHudItem('area', UI.cyan);
 const timeHud = createHudItem('timer', UI.amber);
-// jen v Boss levelu — kolik generátorů ještě Bosse nabíjí
-const generatorHud = createHudItem('core', '#9d5bff');
+// jen v Boss levelu — kolik generátorů má hráč už umlčených
+const GENERATOR_HUD_COLOR = '#9d5bff';
+const generatorHud = createHudItem('core', GENERATOR_HUD_COLOR);
 generatorHud.wrap.style.display = 'none';
 hudContainer.append(livesHud.wrap, percentHud.wrap, timeHud.wrap, generatorHud.wrap);
 
@@ -1148,6 +1153,60 @@ function flashScreen(holdMs = 40, fadeSeconds = 1.6) {
         flashOverlay.style.transition = `opacity ${fadeSeconds}s ease-out`;
         flashOverlay.style.opacity = '0';
     }, holdMs);
+}
+
+// --- LETÍCÍ HLÁŠENÍ ---
+// Krátká informace uprostřed obrazovky, která pak odletí na své místo v HUD.
+// Hráč tak vidí, co se stalo, a rovnou i kam si to má příště hlídat.
+function flashToHud(text, color, target) {
+    const label = document.createElement('div');
+    label.textContent = text;
+    Object.assign(label.style, {
+        position: 'absolute', top: '42%', left: '50%',
+        transform: 'translate(-50%, -50%) scale(0.6)',
+        fontFamily: UI.font, fontSize: 'clamp(42px, 8vw, 86px)', letterSpacing: '4px',
+        color, textShadow: UI.glow(color), opacity: '0', pointerEvents: 'none', zIndex: '210',
+        transition: 'opacity 0.22s ease-out, transform 0.22s ease-out'
+    });
+    uiContainer.appendChild(label);
+
+    const cleanup = [];
+    cleanup.push(setTimeout(() => {
+        label.style.opacity = '1';
+        label.style.transform = 'translate(-50%, -50%) scale(1)';
+    }, 20));
+
+    cleanup.push(setTimeout(() => {
+        const from = label.getBoundingClientRect();
+        const to = target ? target.getBoundingClientRect() : null;
+        if (to && to.width > 0) {
+            const dx = (to.left + to.width / 2) - (from.left + from.width / 2);
+            const dy = (to.top + to.height / 2) - (from.top + from.height / 2);
+            label.style.transition = 'opacity 0.55s ease-in, transform 0.55s ease-in';
+            label.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(0.18)`;
+        }
+        label.style.opacity = '0';
+    }, 900));
+
+    cleanup.push(setTimeout(() => label.remove(), 1600));
+    return cleanup;
+}
+
+// Hlášení, které jen probleskne uprostřed a zmizí — nikam neletí.
+function flashNotice(text, color) {
+    const label = document.createElement('div');
+    label.textContent = text;
+    Object.assign(label.style, {
+        position: 'absolute', top: '56%', left: '50%',
+        transform: 'translate(-50%, -50%)',
+        fontFamily: UI.font, fontSize: 'clamp(22px, 3.4vw, 36px)', letterSpacing: '3px',
+        color, textShadow: UI.glow(color), opacity: '0', pointerEvents: 'none', zIndex: '210',
+        transition: 'opacity 0.3s ease-out'
+    });
+    uiContainer.appendChild(label);
+    setTimeout(() => { label.style.opacity = '1'; }, 20);
+    setTimeout(() => { label.style.transition = 'opacity 0.9s ease-in'; label.style.opacity = '0'; }, 1500);
+    setTimeout(() => label.remove(), 2600);
 }
 
 function showNotice(textKey) {
@@ -1416,8 +1475,12 @@ function updateHUD() {
         hudPercent = filledPercentage;
         hudTarget = targetPercentage;
     }
+    // Počítá se, kolik generátorů je umlčených — hra tedy začíná na 0/4
+    // a číslo roste, jak hráč zabírá plochu kolem nich.
     if (generators.length > 0) {
-        generatorHud.value.textContent = `${activeGeneratorCount()}/${generators.length}`;
+        const silenced = generators.length - activeGeneratorCount();
+        generatorHud.value.textContent = `${silenced}/${generators.length}`;
+        generatorHud.value.style.color = silenced === generators.length ? UI.success : UI.text;
     }
 }
 
@@ -2863,7 +2926,7 @@ const BOSS_SPEED = 1.15;
 const BOSS_SPEED_GRINDING = 0.5;     // při drcení plochy ještě zvolní
 const BOSS_FIRE_INTERVAL = 10;
 const BOSS_VOLLEY = 12;              // koulí v jedné salvě
-const BOSS_WARNING_TIME = 1.3;       // zatřesení jako varování před salvou
+const BOSS_WARNING_TIME = 1.6;       // varování před salvou
 const BOSS_CRUSH_CELLS = 4;
 const BOSS_COLOR = 0xff2a2a;
 const BOSS_CAGE_COLOR = 0xff7a1a;
@@ -2936,21 +2999,34 @@ class Generator {
         this.coreMaterial.color.setHex(0x3a3550);
         this.edgeMaterial.color.setHex(0x3a3550);
         this.beam.visible = false;
-        soundManager.playSFX('capture');
         createExplosion(this.mesh.position.x, BLOCK_HEIGHT * 2, this.mesh.position.z, 30, [GENERATOR_COLOR, 0xffffff]);
         updateHUD();
+
+        const silenced = generators.length - activeGeneratorCount();
+        const allDown = silenced === generators.length;
+
+        soundManager.playSFX(allDown ? 'disarm' : 'power');
+        flashToHud(`${silenced}/${generators.length}`, allDown ? UI.success : GENERATOR_HUD_COLOR, generatorHud.wrap);
+        if (allDown) flashNotice(t('bossDisarmed'), UI.success);
     }
 
     // Boss a nepřátelé plochu kolem generátoru zase rozbijí — a generátor
     // se probudí. Boss level je přetahovaná, ne jednosměrka.
     reactivate() {
+        const wasDisarmed = activeGeneratorCount() === 0;
         this.active = true;
         this.coreMaterial.color.setHex(GENERATOR_COLOR);
         this.edgeMaterial.color.setHex(GENERATOR_COLOR);
         this.beam.visible = true;
-        soundManager.playSFX('beep');
+        soundManager.playSFX('alarm');
         createExplosion(this.mesh.position.x, BLOCK_HEIGHT * 2, this.mesh.position.z, 18, [GENERATOR_COLOR, 0xff2a2a]);
         updateHUD();
+
+        // ztráta se hlásí stejně jako zisk, jinak by si hráč probuzení
+        // generátoru všiml až podle salvy
+        const silenced = generators.length - activeGeneratorCount();
+        flashToHud(`${silenced}/${generators.length}`, UI.danger, generatorHud.wrap);
+        if (wasDisarmed) flashNotice(t('bossRecharging'), UI.danger);
     }
 
     update(delta) {
@@ -3022,11 +3098,27 @@ class Boss {
             color: BOSS_COLOR, transparent: true, opacity: 0.35,
             blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
         });
-        this.ring = new THREE.Mesh(new THREE.RingGeometry(BOSS_RADIUS * 1.2, BOSS_RADIUS * 1.8, 24), this.ringMaterial);
+        this.ring = new THREE.Mesh(new THREE.RingGeometry(BOSS_RADIUS * 0.9, BOSS_RADIUS * 1.3, 24), this.ringMaterial);
         this.ring.rotation.x = -Math.PI / 2;
         this.ring.position.y = BLOCK_HEIGHT * 0.15;
         this.mesh.add(this.ring);
 
+        // Rázová vlna před salvou. Opakovaně vyráží od Bosse ven, takže je
+        // na první pohled jasné, že se chystá vystřelit do všech stran.
+        this.chargeMaterial = new THREE.MeshBasicMaterial({
+            color: 0xfff0d0, transparent: true, opacity: 0,
+            blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
+        });
+        this.chargeRing = new THREE.Mesh(
+            new THREE.RingGeometry(BOSS_RADIUS * 0.95, BOSS_RADIUS * 1.15, 32),
+            this.chargeMaterial
+        );
+        this.chargeRing.rotation.x = -Math.PI / 2;
+        this.chargeRing.position.y = BLOCK_HEIGHT * 0.2;
+        this.chargeRing.visible = false;
+        this.mesh.add(this.chargeRing);
+
+        this.isCharging = false;
         sceneGroup.add(this.mesh);
     }
 
@@ -3162,15 +3254,36 @@ class Boss {
         this.ring.scale.setScalar(charged ? 1 + pulse * 0.08 : 1);
 
         if (warning) {
-            const amplitude = 0.3 * (1 - toFire / BOSS_WARNING_TIME);
+            // sílící třes + nafukující se jádro + vlny vybíhající ven
+            const charge = 1 - toFire / BOSS_WARNING_TIME;
+            if (!this.isCharging) {
+                this.isCharging = true;
+                soundManager.playSFX('charge');
+            }
+
+            const amplitude = 0.35 * charge;
             this.core.position.set(
                 (Math.random() - 0.5) * amplitude,
                 (Math.random() - 0.5) * amplitude,
                 (Math.random() - 0.5) * amplitude
             );
+            this.core.scale.setScalar(1 + charge * 0.3);
             this.ringMaterial.opacity = 0.85;
-        } else if (this.core.position.lengthSq() > 0) {
-            this.core.position.set(0, 0, 0);
+
+            const sweep = (charge * 3) % 1;
+            this.chargeRing.visible = true;
+            this.chargeRing.scale.setScalar(0.6 + sweep * 3.4);
+            this.chargeMaterial.opacity = (1 - sweep) * (0.25 + charge * 0.5);
+
+            // jemné chvění obrazu, ať je varování cítit i mimo střed obrazovky
+            cameraShakeTime = Math.max(cameraShakeTime, 0.05 + charge * 0.1);
+        } else {
+            if (this.isCharging) {
+                this.isCharging = false;
+                this.core.scale.setScalar(1);
+                this.chargeRing.visible = false;
+            }
+            if (this.core.position.lengthSq() > 0) this.core.position.set(0, 0, 0);
         }
 
         hitPlayersInRange(this.mesh.position, this.radius * 0.8, 'reasonBossHit');

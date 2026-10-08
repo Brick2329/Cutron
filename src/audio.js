@@ -19,7 +19,15 @@ const SFX = {
     // zásah do rozdělané brázdy — krátké prasknutí, po kterém se začne bortit
     collapse:  [.55, .15, 150, .01, .08, .26, 4, 2.4, -6, , , , , 1.2, , .2, .05, .55, .14],
     // paprsek vyrážející z Bosse při jeho rozpadu
-    ray:       [.35, .1, 980, , .02, .09, 2, 1.6, 12, , 420, .03, , , , , , .5, .02]
+    ray:       [.35, .1, 980, , .02, .09, 2, 1.6, 12, , 420, .03, , , , , , .5, .02],
+    // Boss nabírá energii — dlouhý stoupající tón jako varování před salvou
+    charge:    [.5, .05, 90, .05, 1, .3, 2, 1.4, 6, 3, , , , .1, , , , .6, .12],
+    // umlčený generátor
+    power:     [.6, .05, 480, .02, .12, .3, 1, 1.6, , , 220, .05, , , , , .05, .7, .1],
+    // umlčený poslední generátor — Boss je odzbrojený
+    disarm:    [.7, .05, 220, .05, .25, .55, 1, 1.3, , , 330, .08, .12, , , , .1, .8, .2],
+    // generátor se probral zpátky k životu
+    alarm:     [.55, .05, 420, .02, .14, .3, 2, 1.8, -5, -2, , , , .1, , , .05, .6, .12]
 };
 
 // Zvuk stopy se spouští při každé projeté buňce mřížky (i 60× za sekundu),
@@ -68,9 +76,12 @@ class AudioEngine {
         if (this.ctx.state === 'suspended') this.ctx.resume();
     }
 
+    // Generovaná hudba je proti zvukům ze hry tišší, než by při stejné poloze
+    // posuvníků měla být — dostává proto pevné přilepšení. Nahrávka v menu ho
+    // nepotřebuje, ta je hlasitá dost.
     updateVolumes() {
         this.sfxGain.gain.value = this.settings.sfxVol;
-        this.musicGain.gain.value = this.settings.bgmVol;
+        this.musicGain.gain.value = Math.min(this.settings.bgmVol * 1.35, 1);
         this.menuMusic.volume = this.settings.bgmVol;
     }
 
@@ -131,7 +142,9 @@ class AudioEngine {
         oscA.start();
         oscB.start();
 
-        gain.gain.setTargetAtTime(0.16, this.ctx.currentTime, 0.15);
+        // Motor běží pořád, takže i mírná hlasitost přebije hudbu. Dřív tu
+        // bylo 0.16 a dron přehlušil celý podklad.
+        gain.gain.setTargetAtTime(0.065, this.ctx.currentTime, 0.15);
         this.engineNodes = { gain, filter, oscA, oscB };
     }
 
@@ -309,7 +322,7 @@ class AudioEngine {
         osc.type = 'sine';
         osc.frequency.setValueAtTime(startFrequency, time);
         osc.frequency.exponentialRampToValueAtTime(startFrequency * 0.37, time + decay * 0.7);
-        gain.gain.setValueAtTime(0.5, time);
+        gain.gain.setValueAtTime(0.42, time);
         gain.gain.exponentialRampToValueAtTime(0.001, time + decay);
         osc.connect(gain).connect(this.musicGain);
         osc.start(time);
