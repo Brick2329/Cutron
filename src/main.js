@@ -97,7 +97,7 @@ const LEVELS_CONFIG = [
 const BOSS_LEVEL_ID = 9;
 const BOSS_LEVEL_CONFIG = {
     id: BOSS_LEVEL_ID, target: 80, time: 240,
-    bouncers: 0, eaters: 1, bombers: 3, maxMines: 0, pillars: 0, boss: true
+    bouncers: 0, eaters: 2, bombers: 3, maxMines: 0, pillars: 0, boss: true
 };
 const TOTAL_LEVEL_COUNT = LEVELS_CONFIG.length + 1;
 const levelConfigById = (id) =>
@@ -522,6 +522,8 @@ function openBossBriefing() {
     // cokoli běželo předtím, během čtení stojí
     gameState = 'MENU';
     soundManager.stopEngine();
+    // temný podklad nastupuje hned u textu, ne až s levelem
+    soundManager.startBossMusic();
 
     menuUI.style.display = 'none';
     levelSelectUI.style.display = 'none';
@@ -1492,8 +1494,17 @@ function showBossVictory() {
     soundManager.stopEngine();
     soundManager.stopGameMusic();
     soundManager.playSFX('victory');
-    resultOverlay.style.display = 'flex';
+
+    // Z bílé se nevynoří hrací plocha, ale černo. Boss levelem hra končí,
+    // takže po výbuchu nemá co zůstat.
+    sceneGroup.visible = false;
+    players.forEach((p) => { p.group.visible = false; });
+    hudContainer.style.display = 'none';
+    topButtons.style.display = 'none';
     controlsUI.style.display = 'none';
+
+    resultOverlay.style.backgroundColor = '#04040f';
+    resultOverlay.style.display = 'flex';
 
     const score = levelScore();
     if (!progress.scores[currentLevelId] || score > progress.scores[currentLevelId]) {
@@ -2859,7 +2870,8 @@ const BOSS_CAGE_COLOR = 0xff7a1a;
 
 const GENERATOR_COLOR = 0x9d5bff;
 const GENERATOR_RADIUS_CELLS = 6;
-const GENERATOR_CAPTURE_RATIO = 0.7;
+const GENERATOR_CAPTURE_RATIO = 0.7;   // zabráno tolik okolí = generátor zhasne
+const GENERATOR_REVIVE_RATIO = 0.5;    // a pod touhle hranicí se zase probudí
 
 const generators = [];
 let boss = null;
@@ -2929,19 +2941,35 @@ class Generator {
         updateHUD();
     }
 
+    // Boss a nepřátelé plochu kolem generátoru zase rozbijí — a generátor
+    // se probudí. Boss level je přetahovaná, ne jednosměrka.
+    reactivate() {
+        this.active = true;
+        this.coreMaterial.color.setHex(GENERATOR_COLOR);
+        this.edgeMaterial.color.setHex(GENERATOR_COLOR);
+        this.beam.visible = true;
+        soundManager.playSFX('beep');
+        createExplosion(this.mesh.position.x, BLOCK_HEIGHT * 2, this.mesh.position.z, 18, [GENERATOR_COLOR, 0xff2a2a]);
+        updateHUD();
+    }
+
     update(delta) {
         this.pulsePhase += delta * 3;
-        if (!this.active) return;
 
-        // sken okolí není potřeba každý snímek
+        // sken okolí není potřeba každý snímek. Mezi zhasnutím a probuzením
+        // je schválně mezera, aby generátor neblikal na hraně jediného pole.
         this.checkTimer += delta;
         if (this.checkTimer > 0.3) {
             this.checkTimer = 0;
-            if (this.capturedRatio() >= GENERATOR_CAPTURE_RATIO) {
+            const ratio = this.capturedRatio();
+            if (this.active && ratio >= GENERATOR_CAPTURE_RATIO) {
                 this.deactivate();
                 return;
             }
+            if (!this.active && ratio < GENERATOR_REVIVE_RATIO) this.reactivate();
         }
+
+        if (!this.active) return;
 
         const pulse = Math.sin(this.pulsePhase) * 0.5 + 0.5;
         this.core.rotation.y += delta * 2;
@@ -3089,8 +3117,8 @@ class Boss {
         }
         sceneGroup.remove(this.mesh);
         cameraShakeTime = 1.4;
-        // bílá chvíli drží a pak pomalu doznívá, aby se z ní vynořil výsledek
-        flashScreen(500, 2.4);
+        // bílá drží a pak hodně pomalu doznívá, aby se z ní vynořil výsledek
+        flashScreen(900, 4.5);
     }
 
     update(delta) {
@@ -3315,6 +3343,9 @@ function beginMatch() {
     levelSelectUI.style.display = 'none';
     helpUI.style.display = 'none';
     resultOverlay.style.display = 'none';
+    // konec Boss levelu obrazovku zatmí a schová HUD — tady se vrací do hry
+    resultOverlay.style.backgroundColor = UI.overlay;
+    topButtons.style.display = 'flex';
     gameUI.style.display = 'block';
     controlsUI.style.display = 'flex';
     refreshControlsHint();
@@ -3324,7 +3355,9 @@ function beginMatch() {
 function finishMatchStart() {
     updateAllTexts();
     soundManager.startEngine();
-    soundManager.startGameMusic();
+    // Boss level si drží svou hudbu z úvodní obrazovky
+    if (currentLevelConfig && currentLevelConfig.boss) soundManager.startBossMusic();
+    else soundManager.startGameMusic();
     gameState = 'PLAYING';
     // až teď, protože zobrazení šipek se řídí herním stavem
     refreshTouchControls();

@@ -45,6 +45,7 @@ class AudioEngine {
 
         this.engineNodes = null;
         this.sequencer = null;
+        this.drone = null;
 
         // Hudba menu zůstává jako nahrávka, zbytek zvuků je generovaný
         this.menuMusic = new Audio('sounds/soundtrack.mp3');
@@ -171,33 +172,113 @@ class AudioEngine {
 
     startGameMusic() {
         this.stopMenuMusic();
-        if (this.sequencer) return;
+        if (this.sequencer && this.sequencer.mode === 'game') return;
+        this.stopSequencer();
+        this.stopDrone();
+        this.startSequencer('game', 60 / 104 / 4);
+    }
 
+    // Boss level má vlastní, temnější podklad: pomalejší tempo, hluboký
+    // bzukot pod tím a řídké kovové údery místo hi-hatů.
+    startBossMusic() {
+        this.stopMenuMusic();
+        if (this.sequencer && this.sequencer.mode === 'boss') return;
+        this.stopSequencer();
+        this.startDrone();
+        this.startSequencer('boss', 60 / 72 / 4);
+    }
+
+    startSequencer(mode, stepDuration) {
         this.sequencer = {
+            mode,
+            stepDuration,
             step: 0,
             nextTime: this.ctx.currentTime + 0.1,
             timer: setInterval(() => this.scheduleSteps(), 25)
         };
     }
 
-    stopGameMusic() {
+    stopSequencer() {
         if (!this.sequencer) return;
         clearInterval(this.sequencer.timer);
         this.sequencer = null;
     }
 
+    stopGameMusic() {
+        this.stopSequencer();
+        this.stopDrone();
+    }
+
+    // Hluboký bzukot pod Boss levelem. Filtr se pomalu vlní, aby nebyl mrtvý.
+    startDrone() {
+        if (this.drone) return;
+
+        const gain = this.ctx.createGain();
+        gain.gain.value = 0;
+        gain.connect(this.musicGain);
+
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 210;
+        filter.Q.value = 5;
+        filter.connect(gain);
+
+        const oscA = this.ctx.createOscillator();
+        oscA.type = 'sawtooth';
+        oscA.frequency.value = 41.2;   // E1
+        const oscB = this.ctx.createOscillator();
+        oscB.type = 'sawtooth';
+        oscB.frequency.value = 61.74;  // B1, kvinta nad ním
+        oscB.detune.value = -9;
+
+        const lfo = this.ctx.createOscillator();
+        lfo.frequency.value = 0.07;
+        const lfoDepth = this.ctx.createGain();
+        lfoDepth.gain.value = 95;
+        lfo.connect(lfoDepth).connect(filter.frequency);
+
+        oscA.connect(filter);
+        oscB.connect(filter);
+        oscA.start();
+        oscB.start();
+        lfo.start();
+
+        gain.gain.setTargetAtTime(0.12, this.ctx.currentTime, 1.2);
+        this.drone = { gain, oscA, oscB, lfo };
+    }
+
+    stopDrone() {
+        if (!this.drone) return;
+        const { gain, oscA, oscB, lfo } = this.drone;
+        this.drone = null;
+
+        const stopAt = this.ctx.currentTime + 0.9;
+        gain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.25);
+        oscA.stop(stopAt);
+        oscB.stop(stopAt);
+        lfo.stop(stopAt);
+    }
+
     scheduleSteps() {
-        const STEP_DURATION = 60 / 104 / 4; // šestnáctiny při 104 BPM
         const SCHEDULE_AHEAD = 0.15;
 
         while (this.sequencer && this.sequencer.nextTime < this.ctx.currentTime + SCHEDULE_AHEAD) {
             this.playStep(this.sequencer.step, this.sequencer.nextTime);
             this.sequencer.step = (this.sequencer.step + 1) % 16;
-            this.sequencer.nextTime += STEP_DURATION;
+            this.sequencer.nextTime += this.sequencer.stepDuration;
         }
     }
 
     playStep(step, time) {
+        if (this.sequencer.mode === 'boss') {
+            if (step === 0 || step === 9) this.playKick(time, 92, 0.3);
+            if (step === 6 || step === 14) this.playClang(time);
+            if (step === 0) this.playBass(41.2, time, 0.5);
+            if (step === 10) this.playBass(43.65, time, 0.4);
+            if (step === 12) this.playBass(38.89, time, 0.4);
+            return;
+        }
+
         if (step % 8 === 0) this.playKick(time);
         if (step % 4 === 2) this.playHat(time);
         if (step === 0 || step === 6 || step === 10) {
@@ -205,17 +286,34 @@ class AudioEngine {
         }
     }
 
-    playKick(time) {
+    // vzdálený kovový úder — pro Boss level místo hi-hatu
+    playClang(time) {
+        const source = this.ctx.createBufferSource();
+        const filter = this.ctx.createBiquadFilter();
+        const gain = this.ctx.createGain();
+        source.buffer = this.noiseBuffer;
+        filter.type = 'bandpass';
+        filter.frequency.value = 1700;
+        filter.Q.value = 11;
+        gain.gain.setValueAtTime(0.11, time);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.5);
+        source.connect(filter).connect(gain).connect(this.musicGain);
+        source.start(time);
+        source.stop(time + 0.5);
+    }
+
+    // Boss si bere nižší a delší variantu, kampaň tu původní.
+    playKick(time, startFrequency = 120, decay = 0.16) {
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(120, time);
-        osc.frequency.exponentialRampToValueAtTime(44, time + 0.11);
+        osc.frequency.setValueAtTime(startFrequency, time);
+        osc.frequency.exponentialRampToValueAtTime(startFrequency * 0.37, time + decay * 0.7);
         gain.gain.setValueAtTime(0.5, time);
-        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.16);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + decay);
         osc.connect(gain).connect(this.musicGain);
         osc.start(time);
-        osc.stop(time + 0.18);
+        osc.stop(time + decay + 0.02);
     }
 
     playHat(time) {
@@ -232,7 +330,7 @@ class AudioEngine {
         source.stop(time + 0.06);
     }
 
-    playBass(frequency, time) {
+    playBass(frequency, time, length = 0.22) {
         const osc = this.ctx.createOscillator();
         const filter = this.ctx.createBiquadFilter();
         const gain = this.ctx.createGain();
@@ -241,10 +339,10 @@ class AudioEngine {
         filter.type = 'lowpass';
         filter.frequency.value = 700;
         gain.gain.setValueAtTime(0.18, time);
-        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.22);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + length);
         osc.connect(filter).connect(gain).connect(this.musicGain);
         osc.start(time);
-        osc.stop(time + 0.24);
+        osc.stop(time + length + 0.02);
     }
 }
 
