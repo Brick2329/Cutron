@@ -97,15 +97,14 @@ const LEVELS_CONFIG = [
 const BOSS_LEVEL_ID = 9;
 const BOSS_LEVEL_CONFIG = {
     id: BOSS_LEVEL_ID, target: 80, time: 240,
-    bouncers: 0, eaters: 2, bombers: 3, maxMines: 0, pillars: 0, boss: true
+    bouncers: 0, eaters: 2, bombers: 3, maxMines: 4, pillars: 0, boss: true
 };
 const TOTAL_LEVEL_COUNT = LEVELS_CONFIG.length + 1;
 const levelConfigById = (id) =>
     (id === BOSS_LEVEL_ID ? BOSS_LEVEL_CONFIG : LEVELS_CONFIG.find((c) => c.id === id)) || LEVELS_CONFIG[0];
 
-// DOCASNE: dokud si Boss level neodladíme, zůstává odemčený pro všechny.
-// Jinak by se k němu dalo dostat až po dohrání všech osmi levelů.
-const BOSS_ALWAYS_UNLOCKED = true;
+// Boss level se otevře až dohráním osmého levelu.
+const isBossUnlocked = () => progress.unlocked > LEVELS_CONFIG.length;
 
 // --- LOKALIZACE (CZ / EN) ---
 const i18n = {
@@ -498,7 +497,10 @@ const bossBriefing = document.createElement('div');
 Object.assign(bossBriefing.style, {
     position: 'absolute', top: '0', left: '0', width: '100%', height: '100%',
     display: 'none', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-    backgroundColor: '#000000', pointerEvents: 'auto', zIndex: '250', padding: '0 24px'
+    backgroundColor: '#000000', pointerEvents: 'auto', zIndex: '250',
+    // Bez border-box by šířka 100 % a vnitřní okraj daly dohromady víc, než
+    // je displej — na telefonu text utekl mimo obrazovku a nebyl vystředěný.
+    padding: '24px', boxSizing: 'border-box', overflowY: 'auto', textAlign: 'center'
 });
 uiContainer.appendChild(bossBriefing);
 
@@ -525,7 +527,16 @@ Object.assign(bossBriefingBtn.style, {
 });
 applyHoverFill(bossBriefingBtn, UI.danger);
 
-bossBriefing.append(bossBriefingTitle, bossBriefingText, bossBriefingBtn);
+// Vlastní obal s automatickým okrajem: když se obsah vejde, zůstane
+// uprostřed, a když ne, dá se k němu dorolovat. Samotné justify-content
+// by vršek textu na nízkém displeji schovalo mimo dosah.
+const bossBriefingInner = document.createElement('div');
+Object.assign(bossBriefingInner.style, {
+    display: 'flex', flexDirection: 'column', alignItems: 'center',
+    margin: 'auto', maxWidth: '100%'
+});
+bossBriefingInner.append(bossBriefingTitle, bossBriefingText, bossBriefingBtn);
+bossBriefing.appendChild(bossBriefingInner);
 
 let briefingTimers = [];
 
@@ -649,7 +660,8 @@ const helpUI = document.createElement('div');
 Object.assign(helpUI.style, {
     position: 'absolute', top: '0', left: '0', width: '100%', height: '100%',
     display: 'none', flexDirection: 'column', alignItems: 'center', pointerEvents: 'auto',
-    backgroundColor: UI.overlay, overflowY: 'auto', padding: '0 20px 40px'
+    backgroundColor: UI.overlay, overflowY: 'auto',
+    padding: '0 20px 40px', boxSizing: 'border-box'
 });
 uiContainer.appendChild(helpUI);
 
@@ -1392,8 +1404,11 @@ function resetDpad() {
     dpad.up = dpad.down = dpad.left = dpad.right = false;
 }
 
+// Šipky patří jen k běžící hře. Na výsledkové obrazovce ani v pauze nemají
+// co dělat — na telefonu zasahovaly do tlačítek pod nimi.
 function refreshTouchControls() {
-    const show = isTouchDevice && gameState === 'PLAYING' && touchControlMode() === 'dpad';
+    const playing = gameState === 'PLAYING' && !isGameOver && !isWinAnimating && !isPaused;
+    const show = isTouchDevice && playing && touchControlMode() === 'dpad';
     dpadUI.style.display = show ? 'grid' : 'none';
     if (!show) resetDpad();
 }
@@ -1443,7 +1458,7 @@ function openLevelSelect() {
 
     // Boss level dostane vlastní pruh přes celou šířku — není to devátý
     // level v řadě, ale finále kampaně.
-    const bossUnlocked = BOSS_ALWAYS_UNLOCKED || progress.unlocked > LEVELS_CONFIG.length;
+    const bossUnlocked = isBossUnlocked();
     const bossBox = document.createElement('div');
     Object.assign(bossBox.style, {
         gridColumn: '1 / -1', height: `${Math.round(LEVEL_TILE * 0.55)}px`,
@@ -1499,6 +1514,8 @@ function togglePause(forcePause) {
     
     soundManager.playSFX('click');
     isPaused = typeof forcePause === 'boolean' ? forcePause : !isPaused;
+
+    refreshTouchControls();
 
     if (isPaused) {
         soundManager.stopEngine();
@@ -1683,6 +1700,7 @@ function createResultButton(label, color, onClick) {
 // skóre jednoho levelu — jen celkový součet za celou kampaň.
 function showBossVictory() {
     isGameOver = true;
+    refreshTouchControls();
     soundManager.stopEngine();
     soundManager.stopGameMusic();
     soundManager.playSFX('victory');
@@ -1731,6 +1749,7 @@ function showBossVictory() {
 
 function showResult(isWin, reasonKey = "") {
     isGameOver = true;
+    refreshTouchControls();
     soundManager.stopEngine();
     soundManager.stopGameMusic();
     resultOverlay.style.display = 'flex';
@@ -1805,6 +1824,7 @@ function showResult(isWin, reasonKey = "") {
 
 function showDuelResult(winner, reasonKey) {
     isGameOver = true;
+    refreshTouchControls();
     soundManager.stopEngine();
     soundManager.stopGameMusic();
     resultOverlay.style.display = 'flex';
@@ -3432,6 +3452,7 @@ function startBossFinale() {
 
     isWinAnimating = true;
     winAnimationPlayer = null; // dron nestoupá a nelétají ohňostroje
+    refreshTouchControls();    // hra je zmrazená, šipky nemají co ovládat
     soundManager.stopEngine();
     soundManager.stopGameMusic();
     players.forEach((p) => {
@@ -3734,6 +3755,7 @@ function triggerWin() {
     }
 
     isWinAnimating = true;
+    refreshTouchControls();
     soundManager.stopEngine();
     soundManager.playSFX('victory');
 
