@@ -150,6 +150,7 @@ const i18n = {
         bossBriefingOk: "Jdu na to",
         bossDisarmed: "Boss odzbrojen",
         bossRecharging: "Boss se znovu nabíjí!",
+        bossNeedGenerators: "Umlč všechny čtyři generátory!",
         gameCompleted: "Úspěšně jsi dokončil hru!",
         share: "SDÍLET",
         shareCopied: "ZKOPÍROVÁNO",
@@ -157,7 +158,7 @@ const i18n = {
         shareFailed: "NEPOVEDLO SE",
         bossDefeated: "BOSS PORAŽEN",
         totalScore: "Celkové skóre",
-        bossIntro: "Uprostřed arény se probral Boss. Míří pomalu přímo k tobě a zabranou plochu drtí jako tank. Nabíjejí ho čtyři generátory — zaber plochu kolem generátoru a umlčíš ho. Co ti ale Boss rozdrtí, to generátor zase probudí. Jakmile budeš mít 80 % arény, Boss vybuchne.",
+        bossIntro: "Uprostřed arény se probral Boss. Míří pomalu přímo k tobě a zabranou plochu drtí jako tank. Nabíjejí ho čtyři generátory — zaber plochu kolem generátoru a umlčíš ho. Co ti ale Boss rozdrtí, to generátor zase probudí. Boss vybuchne, až budeš mít všechny čtyři umlčené a k tomu aspoň 80 % arény.",
         reasonBossHit: "Boss tě rozdrtil!",
         reasonBossTrail: "Boss projel tvou brázdou!",
         selectLevel: "Výběr Levelu",
@@ -236,6 +237,7 @@ const i18n = {
         bossBriefingOk: "Let's go",
         bossDisarmed: "Boss disarmed",
         bossRecharging: "The boss is recharging!",
+        bossNeedGenerators: "Silence all four generators!",
         gameCompleted: "You have finished the game!",
         share: "SHARE",
         shareCopied: "COPIED",
@@ -243,7 +245,7 @@ const i18n = {
         shareFailed: "FAILED",
         bossDefeated: "BOSS DEFEATED",
         totalScore: "Total score",
-        bossIntro: "A Boss has woken up in the middle of the arena. It crawls straight at you and grinds captured ground like a tank. Four generators keep it charged — capture the ground around a generator to silence it, but whatever the Boss grinds away wakes that generator up again. Once you hold 80 % of the arena, the Boss blows up.",
+        bossIntro: "A Boss has woken up in the middle of the arena. It crawls straight at you and grinds captured ground like a tank. Four generators keep it charged — capture the ground around a generator to silence it, but whatever the Boss grinds away wakes that generator up again. The Boss blows up once all four are silenced and you hold at least 80 % of the arena.",
         reasonBossHit: "The boss crushed you!",
         reasonBossTrail: "The boss drove through your trail!",
         selectLevel: "Select Level",
@@ -600,8 +602,8 @@ const HELP_ENTRIES = [
     },
     {
         section: 'enemies', shape: 'boss', color: '#10060c', stroke: '#ff2a2a',
-        cz: { name: 'Boss', desc: 'Čeká jen v Boss levelu. Je ze všech nejpomalejší, zato míří pořád přímo k tobě a od ničeho se neodráží — zabranou plochu prostě rozdrtí a sám se tím ještě zpomalí. Dotek s ním stojí život.' },
-        en: { name: 'Boss', desc: 'Waits only in the Boss level. The slowest enemy of all, but it always heads straight at you and bounces off nothing — it simply grinds captured ground down, slowing itself in the process. Touching it costs a life.' }
+        cz: { name: 'Boss', desc: 'Čeká jen v Boss levelu. Je ze všech nejpomalejší, zato míří pořád přímo k tobě a od ničeho se neodráží — zabranou plochu prostě rozdrtí a sám se tím ještě zpomalí. Dotek s ním stojí život. Roztrhá ho až odzbrojení všech čtyř generátorů spolu se zabranými 80 % plochy.' },
+        en: { name: 'Boss', desc: 'Waits only in the Boss level. The slowest enemy of all, but it always heads straight at you and bounces off nothing — it simply grinds captured ground down, slowing itself in the process. Touching it costs a life. It only blows up once all four generators are silenced and you hold 80 % of the arena.' }
     },
     {
         section: 'enemies', shape: 'pylon', color: '#9d5bff',
@@ -2259,6 +2261,14 @@ loader.load('Sprite_drone_2.glb', (gltf) => {
     dronesWaitingForModel.length = 0;
 });
 
+// Skořepina trupu je v modelu pojmenovaná Orange; kdyby se název změnil,
+// pozná se i podle toho, že červená složka výrazně převažuje.
+function isShellMaterial(material) {
+    if (material.name === 'Orange') return true;
+    const color = material.color;
+    return color.r > 0.25 && color.r > color.g * 2.5 && color.r > color.b * 2.5;
+}
+
 function attachDrone(player) {
     if (!droneTemplate) {
         dronesWaitingForModel.push(player);
@@ -2270,13 +2280,18 @@ function attachDrone(player) {
     if (player.scaleMultiplier) model.scale.multiplyScalar(player.scaleMultiplier);
 
     // Obarvení jen pro souboj. Klonované materiály, aby druhý dron zůstal nedotčený.
+    // Přebarvuje se jen skořepina, která je v modelu oranžovočervená —
+    // tedy horní část trupu. Šedé a černé díly vrtulí i bílé břicho si drží
+    // původní barvu, jinak by z dronu byla jednolitá placka.
     if (player.tint !== null && player.tint !== undefined) {
         const tint = new THREE.Color(player.tint);
         model.traverse((child) => {
             if (!child.isMesh || !child.material || child.userData.isRotorWake) return;
-            if (!child.material.color) return;
-            child.material = child.material.clone();
-            child.material.color.lerp(tint, 0.6);
+            const material = child.material;
+            if (!material.color || !isShellMaterial(material)) return;
+
+            child.material = material.clone();
+            child.material.color.copy(tint);
             if (child.material.emissive) child.material.emissive.copy(tint).multiplyScalar(0.25);
         });
     }
@@ -3148,7 +3163,11 @@ class Generator {
 
         soundManager.playSFX(allDown ? 'disarm' : 'power');
         flashToHud(`${silenced}/${generators.length}`, allDown ? UI.success : GENERATOR_HUD_COLOR, generatorHud.wrap);
-        if (allDown) flashNotice(t('bossDisarmed'), UI.success);
+        if (allDown) {
+            flashNotice(t('bossDisarmed'), UI.success);
+            // hráč mohl mít 80 % dávno — poslední generátor výhru dokončí
+            recalculatePercentages();
+        }
     }
 
     // Boss a nepřátelé plochu kolem generátoru zase rozbijí — a generátor
@@ -3740,8 +3759,21 @@ function recalculatePercentages() {
         const leader = players.find((p) => p.percentage > DUEL_TARGET);
         if (leader) endDuel(leader, 'duelByArea');
     } else if (filledPercentage >= targetPercentage) {
-        triggerWin();
+        // Boss vybuchne jen odzbrojený. Samotná zabraná plocha nestačí,
+        // dokud ho nabíjí aspoň jeden generátor.
+        if (boss && !boss.isDead && activeGeneratorCount() > 0) remindGenerators();
+        else triggerWin();
     }
+}
+
+// Hláška se neopakuje při každém zabraném poli, jinak by blikala pořád.
+let generatorReminderAt = 0;
+
+function remindGenerators() {
+    const now = performance.now();
+    if (now - generatorReminderAt < 6000) return;
+    generatorReminderAt = now;
+    flashNotice(t('bossNeedGenerators'), UI.danger);
 }
 
 // zachováno kvůli volání z nepřátel a min
