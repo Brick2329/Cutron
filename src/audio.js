@@ -203,6 +203,16 @@ class AudioEngine {
         this.startSequencer('boss', 60 / 72 / 4);
     }
 
+    // Challenge má být svižnější než kampaň a o dost živější než Boss —
+    // rychlé tempo, hi-hat na každou druhou a běhající arpeggio.
+    startChallengeMusic() {
+        this.stopMenuMusic();
+        if (this.sequencer && this.sequencer.mode === 'challenge') return;
+        this.stopSequencer();
+        this.stopDrone();
+        this.startSequencer('challenge', 60 / 138 / 4);
+    }
+
     startSequencer(mode, stepDuration) {
         this.sequencer = {
             mode,
@@ -285,6 +295,15 @@ class AudioEngine {
     }
 
     playStep(step, time) {
+        if (this.sequencer.mode === 'challenge') {
+            if (step % 4 === 0) this.playKick(time, 135, 0.12);
+            if (step % 2 === 1) this.playHat(time);
+            if (step === 6 || step === 14) this.playClap(time);
+            const arp = [110, 164.81, 220, 164.81, 130.81, 196, 261.63, 196];
+            if (step % 2 === 0) this.playBass(arp[(step / 2) % arp.length], time, 0.13);
+            return;
+        }
+
         if (this.sequencer.mode === 'boss') {
             if (step === 0 || step === 9) this.playKick(time, 92, 0.3);
             if (step === 6 || step === 14) this.playClang(time);
@@ -299,6 +318,22 @@ class AudioEngine {
         if (step === 0 || step === 6 || step === 10) {
             this.playBass(step === 0 ? 55 : step === 6 ? 62 : 49, time);
         }
+    }
+
+    // krátké plesknutí do rytmu challenge
+    playClap(time) {
+        const source = this.ctx.createBufferSource();
+        const filter = this.ctx.createBiquadFilter();
+        const gain = this.ctx.createGain();
+        source.buffer = this.noiseBuffer;
+        filter.type = 'bandpass';
+        filter.frequency.value = 1500;
+        filter.Q.value = 2.2;
+        gain.gain.setValueAtTime(0.14, time);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.12);
+        source.connect(filter).connect(gain).connect(this.musicGain);
+        source.start(time);
+        source.stop(time + 0.14);
     }
 
     // vzdálený kovový úder — pro Boss level místo hi-hatu

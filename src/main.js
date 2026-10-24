@@ -37,8 +37,12 @@ const ICON_PIXELS = {
     area:  ['XXXXXXX', 'X.....X', 'X.....X', 'XXXX..X', 'XXXX..X', 'XXXX..X', 'XXXXXXX'],
     timer: ['XXXXXXX', '.X...X.', '..X.X..', '...X...', '..X.X..', '.X...X.', 'XXXXXXX'],
     lock:  ['.XXXXX.', '.X...X.', '.X...X.', 'XXXXXXX', 'XXX.XXX', 'XXX.XXX', 'XXXXXXX'],
-    star:  ['...X...', '..XXX..', 'XXXXXXX', '.XXXXX.', '..XXX..', '.XX.XX.', 'X.....X'],
-    core:  ['...X...', '..XXX..', '.XXXXX.', 'XXXXXXX', '.XXXXX.', '..XXX..', '...X...']
+    // Hvězda je vykreslená z pětiramenného mnohoúhelníku, ne odhadnutá —
+    // ta původní měla kostrbatý hrot a nohy roztažené do rohů.
+    star:  ['.....X.....', '....XXX....', '....XXX....', 'XXXXXXXXXXX', '.XXXXXXXXX.',
+            '..XXXXXXX..', '...XXXXX...', '..XXXXXXX..', '..XXX.XXX..', '..X.....X..'],
+    core:  ['...X...', '..XXX..', '.XXXXX.', 'XXXXXXX', '.XXXXX.', '..XXX..', '...X...'],
+    mine:  ['..XXX..', '.XXXXX.', 'XXXXXXX', 'XXXXXXX', 'XXXXXXX', '.XXXXX.', '..XXX..']
 };
 
 // Sousední pixely v řádku se slučují do jednoho obdélníku, ať je SVG krátké.
@@ -106,6 +110,34 @@ const levelConfigById = (id) =>
 // Boss level se otevře až dohráním osmého levelu.
 const isBossUnlocked = () => progress.unlocked > LEVELS_CONFIG.length;
 
+// --- CHALLENGE ---
+// Krátké úkoly mimo kampaň. Nejsou zamčené a nedávají skóre — jen hvězdu
+// za splnění. `goal` říká, čím se vyhrává:
+//   'area'  zabranou plochou jako v kampani
+//   'exact' trefením přesného procenta
+//   'mines' počtem min, které hráč nechal vybuchnout
+const CHALLENGE_COLOR = '#ffb020';
+const CHALLENGES = [
+    {
+        id: 'mines', goal: 'mines', minesNeeded: 10,
+        time: 150, bouncers: 3, eaters: 0, bombers: 0, maxMines: 5
+    },
+    {
+        id: 'sixtyseven', goal: 'exact', exact: 67,
+        time: 150, bouncers: 3, eaters: 0, bombers: 1, maxMines: 0
+    },
+    {
+        id: 'upside', goal: 'area', target: 80, flipped: true,
+        time: 160, bouncers: 2, eaters: 0, bombers: 0, maxMines: 0
+    },
+    {
+        id: 'wtf', goal: 'area', target: 80, invisibleBouncers: 1,
+        time: 160, bouncers: 0, eaters: 0, bombers: 0, maxMines: 0
+    }
+];
+const challengeById = (id) => CHALLENGES.find((c) => c.id === id) || null;
+const isChallengeDone = (id) => !!(progress.challenges && progress.challenges[id]);
+
 // --- LOKALIZACE (CZ / EN) ---
 const i18n = {
     cz: {
@@ -151,6 +183,19 @@ const i18n = {
         bossDisarmed: "Boss odzbrojen",
         bossRecharging: "Boss se znovu nabíjí!",
         bossNeedGenerators: "Umlč všechny čtyři generátory!",
+        challenges: "Challenge",
+        challengeDone: "Splněno!",
+        chMinesName: "Minové pole",
+        chMinesDesc: "Zaber kus plochy, nalákej miny a nech jich vybuchnout deset, než vyprší čas. Aréna ti to nijak neulehčí — poletují v ní tři bouncery.",
+        chMinesCounter: "Miny",
+        chSixtysevenName: "67",
+        chSixtysevenDesc: "Zaber přesně 67 % plochy. Ani o procento míň, ani o procento víc. Překročení tě bude stát život a celé zabrané území přijdeš. Pomáhat ti nebude bomber ani tři bouncery.",
+        chUpsideName: "Vzhůru nohama",
+        chUpsideDesc: "Celá aréna je vzhůru nohama, takže doleva je doprava a nahoru je dolů. Zaber 80 % plochy, jestli to ještě zvládneš.",
+        chWtfName: "WTF",
+        chWtfDesc: "Prázdná aréna, zaber 80 % plochy. Jenom pozor — něco tu s tebou je. Vidět to není, slyšet ano.",
+        reasonOvershoot: "Přestřelil jsi! Území je pryč.",
+        reasonMinesLeft: "Nestihl jsi odpálit deset min!",
         gameCompleted: "Úspěšně jsi dokončil hru!",
         share: "SDÍLET",
         shareCopied: "ZKOPÍROVÁNO",
@@ -238,6 +283,19 @@ const i18n = {
         bossDisarmed: "Boss disarmed",
         bossRecharging: "The boss is recharging!",
         bossNeedGenerators: "Silence all four generators!",
+        challenges: "Challenge",
+        challengeDone: "Done!",
+        chMinesName: "Minefield",
+        chMinesDesc: "Capture some ground, lure the mines in and set off ten of them before time runs out. The arena will not make it easy — three bouncers are loose in it.",
+        chMinesCounter: "Mines",
+        chSixtysevenName: "67",
+        chSixtysevenDesc: "Capture exactly 67 % of the arena. Not one percent less, not one more. Overshoot and it costs you a life and every bit of ground you took. A bomber and three bouncers are no help either.",
+        chUpsideName: "Upside down",
+        chUpsideDesc: "The whole arena is upside down, so left is right and up is down. Capture 80 % of it, if you still can.",
+        chWtfName: "WTF",
+        chWtfDesc: "An empty arena, capture 80 % of it. Just mind that something is in here with you. You will not see it. You will hear it.",
+        reasonOvershoot: "Overshot! Your ground is gone.",
+        reasonMinesLeft: "You did not set off ten mines in time!",
         gameCompleted: "You have finished the game!",
         share: "SHARE",
         shareCopied: "COPIED",
@@ -304,6 +362,8 @@ const touchControlMode = () => (settingsConfig.touchControl === 'joystick' ? 'jo
 
 let currentLevelId = 1;
 let currentLevelConfig = null;
+let currentChallenge = null;   // běží-li challenge, jinak null
+let challengeMinesBlown = 0;
 let maxActiveMines = 5;
 
 let isPaused = false;
@@ -463,14 +523,17 @@ const levelSelectUI = document.createElement('div');
 Object.assign(levelSelectUI.style, {
     position: 'absolute', top: '0', left: '0', width: '100%', height: '100%',
     display: 'none', flexDirection: 'column', alignItems: 'center', pointerEvents: 'auto',
-    backgroundColor: UI.overlay
+    backgroundColor: UI.overlay,
+    // S challenge sekcí je seznam vyšší než obrazovka, hlavně na telefonu
+    overflowY: 'auto', padding: '0 16px 32px', boxSizing: 'border-box'
 });
 uiContainer.appendChild(levelSelectUI);
 
 const levelSelectTitle = document.createElement('div');
 Object.assign(levelSelectTitle.style, {
     fontFamily: UI.font, fontSize: 'clamp(30px, 5vw, 56px)', color: UI.text,
-    marginTop: '10vh', marginBottom: '40px', letterSpacing: '2px', textShadow: UI.glow(UI.cyan)
+    marginTop: isTouchDevice ? '4vh' : '6vh', marginBottom: isTouchDevice ? '20px' : '32px',
+    letterSpacing: '2px', textShadow: UI.glow(UI.cyan), flex: '0 0 auto'
 });
 levelSelectTitle.dataset.textKey = 'selectLevel';
 levelSelectUI.appendChild(levelSelectTitle);
@@ -479,8 +542,9 @@ const levelGrid = document.createElement('div');
 const LEVEL_TILE = isTouchDevice ? 70 : 120;
 Object.assign(levelGrid.style, {
     display: 'grid',
-    gridTemplateColumns: 'repeat(4, 1fr)',
-    gap: isTouchDevice ? '10px' : '25px'
+    gridTemplateColumns: `repeat(4, ${LEVEL_TILE}px)`,
+    gap: isTouchDevice ? '10px' : '25px',
+    flex: '0 0 auto', maxWidth: '100%'
 });
 levelSelectUI.appendChild(levelGrid);
 
@@ -488,15 +552,16 @@ const btnBackMenu = createMenuButton('back', () => {
     levelSelectUI.style.display = 'none';
     menuUI.style.display = 'flex';
 });
-btnBackMenu.style.marginTop = '50px';
+btnBackMenu.style.marginTop = '36px';
+btnBackMenu.style.flex = '0 0 auto';
 levelSelectUI.appendChild(btnBackMenu);
 
-// --- ÚVOD BOSS LEVELU ---
+// --- ÚVODNÍ OBRAZOVKA ---
 // Hláška přes rozjetou hru se nedala v klidu přečíst. Po kliknutí na dlaždici
-// proto obrazovka zčerná, text se pozvolna objeví a level začne teprve
-// potvrzením — do té doby se nehýbe nic.
-const bossBriefing = document.createElement('div');
-Object.assign(bossBriefing.style, {
+// proto obrazovka zčerná, text se pozvolna objeví a hra začne teprve
+// potvrzením — do té doby se nehýbe nic. Používá to Boss level i challenge.
+const briefingUI = document.createElement('div');
+Object.assign(briefingUI.style, {
     position: 'absolute', top: '0', left: '0', width: '100%', height: '100%',
     display: 'none', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
     backgroundColor: '#000000', pointerEvents: 'auto', zIndex: '250',
@@ -504,79 +569,102 @@ Object.assign(bossBriefing.style, {
     // je displej — na telefonu text utekl mimo obrazovku a nebyl vystředěný.
     padding: '24px', boxSizing: 'border-box', overflowY: 'auto', textAlign: 'center'
 });
-uiContainer.appendChild(bossBriefing);
+uiContainer.appendChild(briefingUI);
 
-const bossBriefingTitle = document.createElement('div');
-bossBriefingTitle.dataset.textKey = 'bossLevel';
-Object.assign(bossBriefingTitle.style, {
+const briefingTitle = document.createElement('div');
+Object.assign(briefingTitle.style, {
     fontFamily: UI.font, fontSize: 'clamp(34px, 7vw, 72px)', letterSpacing: '8px',
-    color: UI.danger, textShadow: UI.glow(UI.danger), marginBottom: '30px',
-    opacity: '0', transition: 'opacity 1.2s ease-in'
+    marginBottom: '30px', opacity: '0', transition: 'opacity 1.2s ease-in'
 });
 
-const bossBriefingText = document.createElement('div');
-bossBriefingText.dataset.textKey = 'bossIntro';
-Object.assign(bossBriefingText.style, {
+const briefingText = document.createElement('div');
+Object.assign(briefingText.style, {
     fontFamily: UI.font, fontSize: 'clamp(18px, 2.4vw, 25px)', color: UI.text,
     lineHeight: '1.6', maxWidth: '640px', textAlign: 'center',
     opacity: '0', transition: 'opacity 1.6s ease-in'
 });
 
-const bossBriefingBtn = createMenuButton('bossBriefingOk', () => confirmBossBriefing());
-Object.assign(bossBriefingBtn.style, {
-    color: UI.danger, borderColor: UI.danger, marginTop: '44px', marginBottom: '0',
+let briefingConfirm = () => {};
+const briefingBtn = createMenuButton('bossBriefingOk', () => confirmBriefing());
+Object.assign(briefingBtn.style, {
+    marginTop: '44px', marginBottom: '0',
     opacity: '0', transition: 'opacity 0.8s ease-in', pointerEvents: 'none'
 });
-applyHoverFill(bossBriefingBtn, UI.danger);
 
 // Vlastní obal s automatickým okrajem: když se obsah vejde, zůstane
 // uprostřed, a když ne, dá se k němu dorolovat. Samotné justify-content
 // by vršek textu na nízkém displeji schovalo mimo dosah.
-const bossBriefingInner = document.createElement('div');
-Object.assign(bossBriefingInner.style, {
+const briefingInner = document.createElement('div');
+Object.assign(briefingInner.style, {
     display: 'flex', flexDirection: 'column', alignItems: 'center',
     margin: 'auto', maxWidth: '100%'
 });
-bossBriefingInner.append(bossBriefingTitle, bossBriefingText, bossBriefingBtn);
-bossBriefing.appendChild(bossBriefingInner);
+briefingInner.append(briefingTitle, briefingText, briefingBtn);
+briefingUI.appendChild(briefingInner);
 
 let briefingTimers = [];
 
-function openBossBriefing() {
+function openBriefing(titleKey, textKey, color, onConfirm) {
     briefingTimers.forEach(clearTimeout);
     briefingTimers = [];
+    briefingConfirm = onConfirm;
 
     // cokoli běželo předtím, během čtení stojí
     gameState = 'MENU';
     soundManager.stopEngine();
-    // temný podklad nastupuje hned u textu, ne až s levelem
-    soundManager.startBossMusic();
+
+    briefingTitle.dataset.textKey = titleKey;
+    briefingTitle.innerText = t(titleKey);
+    briefingTitle.style.color = color;
+    briefingTitle.style.textShadow = UI.glow(color);
+
+    briefingText.dataset.textKey = textKey;
+    briefingText.innerText = t(textKey);
+
+    briefingBtn.style.color = color;
+    briefingBtn.style.borderColor = color;
+    applyHoverFill(briefingBtn, color);
 
     menuUI.style.display = 'none';
     levelSelectUI.style.display = 'none';
     resultOverlay.style.display = 'none';
     gameUI.style.display = 'none';
-    bossBriefing.style.display = 'flex';
+    briefingUI.style.display = 'flex';
 
-    bossBriefingTitle.style.opacity = '0';
-    bossBriefingText.style.opacity = '0';
-    bossBriefingBtn.style.opacity = '0';
-    bossBriefingBtn.style.pointerEvents = 'none';
+    briefingTitle.style.opacity = '0';
+    briefingText.style.opacity = '0';
+    briefingBtn.style.opacity = '0';
+    briefingBtn.style.pointerEvents = 'none';
 
-    briefingTimers.push(setTimeout(() => { bossBriefingTitle.style.opacity = '1'; }, 400));
-    briefingTimers.push(setTimeout(() => { bossBriefingText.style.opacity = '1'; }, 1500));
+    briefingTimers.push(setTimeout(() => { briefingTitle.style.opacity = '1'; }, 400));
+    briefingTimers.push(setTimeout(() => { briefingText.style.opacity = '1'; }, 1500));
     briefingTimers.push(setTimeout(() => {
-        bossBriefingBtn.style.opacity = '1';
-        bossBriefingBtn.style.pointerEvents = 'auto';
+        briefingBtn.style.opacity = '1';
+        briefingBtn.style.pointerEvents = 'auto';
     }, 3300));
 }
 
-function confirmBossBriefing() {
+function confirmBriefing() {
     briefingTimers.forEach(clearTimeout);
     briefingTimers = [];
-    bossBriefing.style.display = 'none';
-    startLevel(BOSS_LEVEL_ID);
+    briefingUI.style.display = 'none';
+    briefingConfirm();
 }
+
+function openBossBriefing() {
+    openBriefing('bossLevel', 'bossIntro', UI.danger, () => startLevel(BOSS_LEVEL_ID));
+    // temný podklad nastupuje hned u textu, ne až s levelem
+    soundManager.startBossMusic();
+}
+
+function openChallengeBriefing(challenge) {
+    openBriefing(challengeKey(challenge, 'Name'), challengeKey(challenge, 'Desc'), CHALLENGE_COLOR,
+        () => startChallenge(challenge.id));
+    soundManager.startChallengeMusic();
+}
+
+const challengeKey = (challenge, suffix) =>
+    'ch' + challenge.id.charAt(0).toUpperCase() + challenge.id.slice(1) + suffix;
 
 // --- OBSAH NÁPOVĚDY (chování odpovídá třídám Bouncer/Eater/Bomber/Fireball/Item) ---
 const HELP_ENTRIES = [
@@ -960,7 +1048,22 @@ const timeHud = createHudItem('timer', UI.amber);
 const GENERATOR_HUD_COLOR = '#9d5bff';
 const generatorHud = createHudItem('core', GENERATOR_HUD_COLOR);
 generatorHud.wrap.style.display = 'none';
-hudContainer.append(livesHud.wrap, percentHud.wrap, timeHud.wrap, generatorHud.wrap);
+// jen v challenge Minové pole — kolik min už vybuchlo
+const minesHud = createHudItem('mine', '#c6ff2e');
+minesHud.wrap.style.display = 'none';
+hudContainer.append(livesHud.wrap, percentHud.wrap, timeHud.wrap, generatorHud.wrap, minesHud.wrap);
+
+// Challenge si HUD přizpůsobí: minové pole potřebuje počítadlo min místo
+// procent, u 67 naopak procenta rostou, jak se hráč blíží cíli.
+const PERCENT_FONT_BASE = isTouchDevice ? 18 : 26;
+
+function refreshChallengeHud() {
+    const goal = currentChallenge ? currentChallenge.goal : null;
+    minesHud.wrap.style.display = goal === 'mines' ? 'flex' : 'none';
+    percentHud.wrap.style.display = goal === 'mines' ? 'none' : 'flex';
+    percentHud.value.style.fontSize = '';
+    percentHud.value.style.color = '';
+}
 
 // HUD souboje: oba hráči vedle sebe v barvách svých dronů, mezi nimi čas.
 const duelHud = document.createElement('div');
@@ -1216,6 +1319,33 @@ function flashToHud(text, color, target) {
     return cleanup;
 }
 
+// Opak letícího hlášení: začne na místě ukazatele v HUD a vyroste přes
+// celou obrazovku. Používá challenge 67 při trefení přesné hodnoty.
+function flashFromHud(text, color, source) {
+    const label = document.createElement('div');
+    label.textContent = text;
+    Object.assign(label.style, {
+        position: 'absolute', top: '46%', left: '50%',
+        fontFamily: UI.font, fontSize: 'clamp(70px, 20vw, 210px)', letterSpacing: '6px',
+        color, textShadow: UI.glow(color), pointerEvents: 'none', zIndex: '210'
+    });
+
+    const targetX = window.innerWidth / 2;
+    const targetY = window.innerHeight * 0.46;
+    const from = source ? source.getBoundingClientRect() : null;
+    const dx = from ? (from.left + from.width / 2) - targetX : 0;
+    const dy = from ? (from.top + from.height / 2) - targetY : 0;
+    label.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(0.1)`;
+    uiContainer.appendChild(label);
+
+    setTimeout(() => {
+        label.style.transition = 'transform 0.8s cubic-bezier(.16,.9,.3,1), opacity 0.7s ease-in 1.7s';
+        label.style.transform = 'translate(-50%, -50%) scale(1)';
+        label.style.opacity = '0';
+    }, 30);
+    setTimeout(() => label.remove(), 2800);
+}
+
 // Hlášení, které jen probleskne uprostřed a zmizí — nikam neletí.
 function flashNotice(text, color) {
     const label = document.createElement('div');
@@ -1446,7 +1576,7 @@ function openLevelSelect() {
         box.innerHTML = `<div style="font-family: ${UI.font}; font-size: ${isTouchDevice ? 26 : 42}px;">${config.id}</div>`;
         
         if (progress.scores[config.id]) {
-            box.innerHTML += `<div style="font-family: ${UI.font}; font-size: ${isTouchDevice ? 11 : 18}px; margin-top: ${isTouchDevice ? 3 : 8}px; color: inherit; display: flex; align-items: center; gap: 4px;">${pixelIcon('star', 'currentColor', isTouchDevice ? 2 : 3)} ${progress.scores[config.id]}</div>`;
+            box.innerHTML += `<div style="font-family: ${UI.font}; font-size: ${isTouchDevice ? 11 : 18}px; margin-top: ${isTouchDevice ? 3 : 8}px; color: inherit; display: flex; align-items: center; gap: 4px;">${pixelIcon('star', 'currentColor', isTouchDevice ? 1 : 2)} ${progress.scores[config.id]}</div>`;
         } else if (!isUnlocked) {
             box.innerHTML += `<div style="margin-top: ${isTouchDevice ? 3 : 8}px; display: flex; color: inherit;">${pixelIcon('lock', 'currentColor', isTouchDevice ? 2 : 3)}</div>`;
         }
@@ -1479,6 +1609,38 @@ function openLevelSelect() {
         bossBox.onclick = () => { soundManager.playSFX('click'); openBossBriefing(); };
     }
     levelGrid.appendChild(bossBox);
+
+    // --- CHALLENGE ---
+    // Vlastní oddíl pod kampaní, odlišený oranžovou. Nic se neodemyká,
+    // za splnění přibude jen hvězda.
+    const heading = document.createElement('div');
+    Object.assign(heading.style, {
+        gridColumn: '1 / -1', marginTop: isTouchDevice ? '10px' : '18px',
+        fontFamily: UI.font, fontSize: `${isTouchDevice ? 18 : 26}px`,
+        color: CHALLENGE_COLOR, letterSpacing: '4px', textTransform: 'uppercase',
+        textAlign: 'center'
+    });
+    heading.textContent = t('challenges');
+    levelGrid.appendChild(heading);
+
+    CHALLENGES.forEach((challenge) => {
+        const done = isChallengeDone(challenge.id);
+        const box = document.createElement('div');
+        Object.assign(box.style, {
+            gridColumn: 'span 2', height: `${Math.round(LEVEL_TILE * 0.5)}px`,
+            display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px',
+            border: `2px solid ${CHALLENGE_COLOR}`, color: CHALLENGE_COLOR, cursor: 'pointer',
+            fontFamily: UI.font, fontSize: `${isTouchDevice ? 15 : 24}px`,
+            letterSpacing: '1px', textTransform: 'uppercase', padding: '0 6px',
+            textAlign: 'center'
+        });
+        box.innerHTML = `<span>${t(challengeKey(challenge, 'Name'))}</span>`
+            + (done ? `<span style="display:flex; color:inherit;">${pixelIcon('star', 'currentColor', isTouchDevice ? 1 : 2)}</span>` : '');
+
+        applyHoverFill(box, CHALLENGE_COLOR);
+        box.onclick = () => { soundManager.playSFX('click'); openChallengeBriefing(challenge); };
+        levelGrid.appendChild(box);
+    });
 }
 
 let hudLives = null, hudSeconds = null, hudPercent = null, hudTarget = null;
@@ -1501,6 +1663,18 @@ function updateHUD() {
         percentHud.value.textContent = `${filledPercentage}% / ${targetPercentage}%`;
         hudPercent = filledPercentage;
         hudTarget = targetPercentage;
+
+        // Challenge 67: číslo roste, jak se hráč blíží cíli, a těsně
+        // před ním zežloutne — ať je napětí vidět i koutkem oka.
+        if (currentChallenge && currentChallenge.goal === 'exact') {
+            const near = Math.min(filledPercentage / currentChallenge.exact, 1);
+            percentHud.value.style.fontSize = `${Math.round(PERCENT_FONT_BASE * (1 + near * 1.1))}px`;
+            percentHud.value.style.color = near > 0.9 ? CHALLENGE_COLOR : UI.text;
+        }
+    }
+
+    if (currentChallenge && currentChallenge.goal === 'mines') {
+        minesHud.value.textContent = `${challengeMinesBlown}/${currentChallenge.minesNeeded}`;
     }
     // Počítá se, kolik generátorů je umlčených — hra tedy začíná na 0/4
     // a číslo roste, jak hráč zabírá plochu kolem nich.
@@ -1558,6 +1732,12 @@ function quitToMenu() {
     resetDpad();
     sceneGroup.visible = false;
     gameMode = 'campaign';
+    currentChallenge = null;
+    camera.up.set(0, 1, 0);
+    minesHud.wrap.style.display = 'none';
+    percentHud.wrap.style.display = 'flex';
+    percentHud.value.style.fontSize = '';
+    percentHud.value.style.color = '';
     winAnimationPlayer = null; 
     
     clearSceneEntities(); // Vymaže částice, nepřátele atd.
@@ -1758,7 +1938,17 @@ function showResult(isWin, reasonKey = "") {
     controlsUI.style.display = 'none';
     
     let scoreHTML = '';
-    if (isWin) {
+    if (isWin && currentChallenge) {
+        // Challenge nedává skóre ani neodemyká levely — jen hvězdu u tlačítka.
+        progress.challenges = progress.challenges || {};
+        progress.challenges[currentChallenge.id] = true;
+        saveProgress();
+
+        resultOverlay.innerHTML = `
+            <div style="font-family: ${UI.font}; color: ${CHALLENGE_COLOR}; font-size: clamp(34px, 6vw, 68px); letter-spacing: 3px; text-shadow: ${UI.glow(CHALLENGE_COLOR)};">${t('challengeDone')}</div>
+            <div style="font-family: ${UI.font}; font-size: 26px; color: ${UI.text}; margin-top: 20px; letter-spacing: 2px;">${t(challengeKey(currentChallenge, 'Name'))}</div>
+            <div style="margin-top: 22px; color: ${CHALLENGE_COLOR}; display: flex;">${pixelIcon('star', 'currentColor', 4)}</div>`;
+    } else if (isWin) {
         const score = levelScore();
 
         if (!progress.scores[currentLevelId] || score > progress.scores[currentLevelId]) {
@@ -1783,7 +1973,7 @@ function showResult(isWin, reasonKey = "") {
     const btnContainer = document.createElement('div');
     Object.assign(btnContainer.style, { marginTop: '40px', display: 'flex', gap: '20px' });
     
-    if (isWin && currentLevelId < TOTAL_LEVEL_COUNT) {
+    if (isWin && !currentChallenge && currentLevelId < TOTAL_LEVEL_COUNT) {
         const nextBtn = document.createElement('button');
         nextBtn.innerText = t('nextLevel');
         Object.assign(nextBtn.style, {
@@ -1807,7 +1997,11 @@ function showResult(isWin, reasonKey = "") {
         backgroundColor: 'transparent', color: UI.cyan, border: `2px solid ${UI.cyan}`, borderRadius: '0'
     });
     applyHoverFill(restartBtn, UI.cyan);
-    restartBtn.onclick = () => { soundManager.playSFX('click'); startLevel(currentLevelId); };
+    restartBtn.onclick = () => {
+        soundManager.playSFX('click');
+        if (currentChallenge) startChallenge(currentChallenge.id);
+        else startLevel(currentLevelId);
+    };
     
     const menuBtn = document.createElement('button');
     menuBtn.innerText = t('mainMenu');
@@ -2760,6 +2954,13 @@ class Item {
         
         if (ateSomething) { blocksMesh.instanceMatrix.needsUpdate = true; calculatePercentage(); }
         createExplosion(this.mesh.position.x, this.mesh.position.y, this.mesh.position.z, 80, [COLOR_RED, COLOR_ORANGE, COLOR_BLACK]);
+
+        // challenge Minové pole se počítá na odpálené miny, ne na plochu
+        if (currentChallenge && currentChallenge.goal === 'mines' && !isGameOver && !isWinAnimating) {
+            challengeMinesBlown++;
+            updateHUD();
+            if (challengeMinesBlown >= currentChallenge.minesNeeded) triggerWin();
+        }
         
         if (gameState === 'PLAYING' && !isWinAnimating && !isGameOver) {
             for (const target of players) {
@@ -3629,8 +3830,9 @@ function beginMatch() {
 function finishMatchStart() {
     updateAllTexts();
     soundManager.startEngine();
-    // Boss level si drží svou hudbu z úvodní obrazovky
-    if (currentLevelConfig && currentLevelConfig.boss) soundManager.startBossMusic();
+    // Boss level i challenge si drží svou hudbu z úvodní obrazovky
+    if (currentChallenge) soundManager.startChallengeMusic();
+    else if (currentLevelConfig && currentLevelConfig.boss) soundManager.startBossMusic();
     else soundManager.startGameMusic();
     gameState = 'PLAYING';
     // až teď, protože zobrazení šipek se řídí herním stavem
@@ -3644,6 +3846,7 @@ const GENERATOR_SPOTS = [[30, 30], [70, 30], [30, 70], [70, 70]];
 
 function startLevel(levelId) {
     gameMode = 'campaign';
+    currentChallenge = null;
     currentLevelId = levelId;
     currentLevelConfig = levelConfigById(levelId);
 
@@ -3685,6 +3888,62 @@ function startLevel(levelId) {
     duelHud.style.display = 'none';
     hudContainer.style.display = 'flex';
     generatorHud.wrap.style.display = currentLevelConfig.boss ? 'flex' : 'none';
+    refreshChallengeHud();
+    finishMatchStart();
+}
+
+// Challenge běží na stejné mašinerii jako kampaň, jen s jiným cílem.
+// Skóre ani odemykání levelů se jí netýká.
+function startChallenge(id) {
+    const challenge = challengeById(id);
+    if (!challenge) return;
+
+    gameMode = 'campaign';
+    currentChallenge = challenge;
+    currentLevelId = 0;
+    currentLevelConfig = challenge;
+    challengeMinesBlown = 0;
+
+    timeRemaining = challenge.time;
+    // u jiných cílů než plocha se procentní výhra nesmí spustit
+    targetPercentage = challenge.goal === 'area' ? challenge.target
+        : (challenge.goal === 'exact' ? challenge.exact : 101);
+    maxActiveMines = challenge.maxMines;
+
+    beginMatch();
+
+    createPlayer(0, {
+        keys: KEY_LAYOUTS.wasd,
+        colors: PLAYER_COLORS.campaign[0],
+        startX: 0,
+        startZ: PLAYER_START_Z,
+        labelKey: 'playerOne'
+    });
+
+    for (let i = 0; i < challenge.bouncers; i++) {
+        const spot = findEnemySpawn();
+        enemies.push(new Bouncer(spot.x, spot.z));
+    }
+    for (let i = 0; i < challenge.eaters; i++) {
+        const spot = findEnemySpawn();
+        enemies.push(new Eater(spot.x, spot.z));
+    }
+    for (let i = 0; i < challenge.bombers; i++) {
+        const spot = findEnemySpawn();
+        enemies.push(new Bomber(spot.x, spot.z));
+    }
+    // Neviditelný bouncer: prozradí ho jedině zvuk odrazu.
+    for (let i = 0; i < (challenge.invisibleBouncers || 0); i++) {
+        const spot = findEnemySpawn();
+        const ghost = new Bouncer(spot.x, spot.z);
+        ghost.mesh.visible = false;
+        enemies.push(ghost);
+    }
+
+    duelHud.style.display = 'none';
+    hudContainer.style.display = 'flex';
+    generatorHud.wrap.style.display = 'none';
+    refreshChallengeHud();
     finishMatchStart();
 }
 
@@ -3696,6 +3955,7 @@ const DUEL_BOUNCERS = 3;
 
 function startDuel() {
     gameMode = 'duel';
+    currentChallenge = null;
     currentLevelId = 0;
     currentLevelConfig = null;
 
@@ -3758,12 +4018,54 @@ function recalculatePercentages() {
     if (gameMode === 'duel') {
         const leader = players.find((p) => p.percentage > DUEL_TARGET);
         if (leader) endDuel(leader, 'duelByArea');
-    } else if (filledPercentage >= targetPercentage) {
+        return;
+    }
+
+    // Challenge 67 se nehraje na „aspoň“, ale na přesně. Přestřelení se
+    // netrestá koncem, ale ztrátou života a celého zabraného území.
+    if (currentChallenge && currentChallenge.goal === 'exact') {
+        if (filledPercentage === currentChallenge.exact) triggerWin();
+        else if (filledPercentage > currentChallenge.exact) overshootArea();
+        return;
+    }
+
+    if (currentChallenge && currentChallenge.goal === 'mines') return;
+
+    if (filledPercentage >= targetPercentage) {
         // Boss vybuchne jen odzbrojený. Samotná zabraná plocha nestačí,
         // dokud ho nabíjí aspoň jeden generátor.
         if (boss && !boss.isDead && activeGeneratorCount() > 0) remindGenerators();
         else triggerWin();
     }
+}
+
+// Zabranou plochu srovná se zemí. Používá challenge 67 při přestřelení.
+function wipeCapturedArea() {
+    for (let z = 1; z < GRID_SIZE - 1; z++) {
+        for (let x = 1; x < GRID_SIZE - 1; x++) {
+            if (!isCapturedCell(grid[z][x])) continue;
+            grid[z][x] = CELL_EMPTY;
+            dummy.scale.set(0, 0, 0);
+            dummy.updateMatrix();
+            blocksMesh.setMatrixAt(getIndex(x, z), dummy.matrix);
+        }
+    }
+    blocksMesh.instanceMatrix.needsUpdate = true;
+    sinkingBlocks.length = 0;
+    animatingBlocks.length = 0;
+}
+
+function overshootArea() {
+    const hero = players[0];
+    if (!hero || hero.isRespawning) return;
+
+    wipeCapturedArea();
+    filledPercentage = 0;
+    hero.percentage = 0;
+    hudPercent = -1;
+    cameraShakeTime = 0.6;
+    flashNotice(t('reasonOvershoot'), UI.danger);
+    playerDied(hero, t('reasonOvershoot'));
 }
 
 // Hláška se neopakuje při každém zabraném poli, jinak by blikala pořád.
@@ -3796,7 +4098,12 @@ function triggerWin() {
     hero.lastGridX = -1; hero.lastGridZ = -1;
     winAnimationPlayer = hero;
     createFireworks(hero.group.position.x, hero.group.position.y, hero.group.position.z);
-    setTimeout(() => { isWinAnimating = false; showResult(true); }, 2000);
+
+    // trefených 67 % si zaslouží, aby to číslo bylo přes celou obrazovku
+    const exact = currentChallenge && currentChallenge.goal === 'exact';
+    if (exact) flashFromHud(`${currentChallenge.exact}%`, CHALLENGE_COLOR, percentHud.wrap);
+
+    setTimeout(() => { isWinAnimating = false; showResult(true); }, exact ? 2800 : 2000);
 }
 
 function endDuel(winner, reasonKey) {
@@ -4309,6 +4616,12 @@ const duelLookTarget = new THREE.Vector3();
 // V kampani kamera sleduje jediný dron. V souboji musí udržet v záběru oba,
 // takže se vzdálenost dopočítává ze zorného úhlu a rozestupu hráčů.
 function updateCamera() {
+    // Challenge Vzhůru nohama: kamera se převalí o 180°, takže celá aréna
+    // stojí na hlavě. Vstup zůstává stejný, a tím pádem doleva je doprava
+    // a nahoru je dolů — přesně jak to má hráč cítit.
+    const flipped = !!(currentChallenge && currentChallenge.flipped);
+    if ((camera.up.y < 0) !== flipped) camera.up.set(0, flipped ? -1 : 1, 0);
+
     // Rozpad Bosse je podívaná, ne hratelná situace — kamera se k němu
     // během ní pomalu přitáhne, ať výbuch neutíká mimo obraz.
     if (bossFinale && boss && !boss.isDead) {
@@ -4440,7 +4753,9 @@ function animate() {
                 const leader = players.reduce((best, p) => (p.percentage > best.percentage ? p : best));
                 endDuel(leader, 'duelByTime');
             } else {
-                playerDied(players[0], t('reasonTime'), true);
+                const outOfTime = currentChallenge && currentChallenge.goal === 'mines'
+                    ? t('reasonMinesLeft') : t('reasonTime');
+                playerDied(players[0], outOfTime, true);
             }
         } else updateHUD();
     }
