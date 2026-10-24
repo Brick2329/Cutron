@@ -119,19 +119,19 @@ const isBossUnlocked = () => progress.unlocked > LEVELS_CONFIG.length;
 const CHALLENGE_COLOR = '#ffb020';
 const CHALLENGES = [
     {
-        id: 'mines', goal: 'mines', minesNeeded: 10,
+        id: 'mines', goal: 'mines', minesNeeded: 15,
         time: 100, bouncers: 3, eaters: 2, bombers: 0, maxMines: 5
     },
     {
         id: 'sixtyseven', goal: 'exact', exact: 67,
-        time: 150, bouncers: 0, eaters: 3, bombers: 1, maxMines: 0
+        time: 100, bouncers: 0, eaters: 3, bombers: 1, maxMines: 0
     },
     {
         id: 'upside', goal: 'area', target: 80, flipped: true,
-        time: 160, bouncers: 2, eaters: 1, bombers: 0, maxMines: 0
+        time: 100, bouncers: 2, eaters: 1, bombers: 0, maxMines: 0
     },
     {
-        id: 'wtf', goal: 'area', target: 80, invisibleBouncers: 2,
+        id: 'wtf', goal: 'area', target: 80, invisibleEaters: 2,
         time: 160, bouncers: 0, eaters: 0, bombers: 0, maxMines: 0
     }
 ];
@@ -187,14 +187,14 @@ const i18n = {
         challengeDone: "Splněno!",
         nextChallenge: "DALŠÍ CHALLENGE",
         chMinesName: "Minové pole",
-        chMinesDesc: "Zaber kus plochy, nalákej miny a nech jich vybuchnout deset, než vyprší čas. Aréna ti to nijak neulehčí — poletují v ní tři bouncery.",
+        chMinesDesc: "Zaber kus plochy, nalákej miny a nech jich vybuchnout patnáct, než vyprší čas. Aréna ti to nijak neulehčí — létají v ní tři bouncery a dva eateři, kteří ti zabranou plochu ukusují i s místy, kde se miny líhnou.",
         chMinesCounter: "Miny",
         chSixtysevenName: "67",
-        chSixtysevenDesc: "Zaber přesně 67 % plochy. Ani o procento míň, ani o procento víc. Překročení tě bude stát život a celé zabrané území přijdeš. Pomáhat ti nebude bomber ani tři bouncery.",
+        chSixtysevenDesc: "Zaber přesně 67 % plochy. Ani o procento míň, ani o procento víc. Překročení tě bude stát život a celé zabrané území přijdeš. Pomáhat ti nebudou tři eateři, kteří ti plochu ukusují, ani bomber.",
         chUpsideName: "Vzhůru nohama",
         chUpsideDesc: "Celá aréna je vzhůru nohama, takže doleva je doprava a nahoru je dolů. Zaber 80 % plochy, jestli to ještě zvládneš.",
         chWtfName: "WTF",
-        chWtfDesc: "Prázdná aréna, zaber 80 % plochy. Jenom pozor — něco tu s tebou je. Vidět to není, slyšet ano.",
+        chWtfDesc: "Prázdná aréna, zaber 80 % plochy. Jenom pozor — něco tu s tebou je. Vidět to není, zato uvidíš díry, které to po sobě nechává.",
         reasonOvershoot: "Přestřelil jsi! Území je pryč.",
         reasonMinesLeft: "Nestihl jsi odpálit deset min!",
         gameCompleted: "Úspěšně jsi dokončil hru!",
@@ -288,14 +288,14 @@ const i18n = {
         challengeDone: "Done!",
         nextChallenge: "NEXT CHALLENGE",
         chMinesName: "Minefield",
-        chMinesDesc: "Capture some ground, lure the mines in and set off ten of them before time runs out. The arena will not make it easy — three bouncers are loose in it.",
+        chMinesDesc: "Capture some ground, lure the mines in and set off fifteen of them before time runs out. The arena will not make it easy — three bouncers and two eaters are loose in it, and the eaters chew away the very ground the mines need.",
         chMinesCounter: "Mines",
         chSixtysevenName: "67",
-        chSixtysevenDesc: "Capture exactly 67 % of the arena. Not one percent less, not one more. Overshoot and it costs you a life and every bit of ground you took. A bomber and three bouncers are no help either.",
+        chSixtysevenDesc: "Capture exactly 67 % of the arena. Not one percent less, not one more. Overshoot and it costs you a life and every bit of ground you took. Three eaters chewing your ground away and a bomber are no help either.",
         chUpsideName: "Upside down",
         chUpsideDesc: "The whole arena is upside down, so left is right and up is down. Capture 80 % of it, if you still can.",
         chWtfName: "WTF",
-        chWtfDesc: "An empty arena, capture 80 % of it. Just mind that something is in here with you. You will not see it. You will hear it.",
+        chWtfDesc: "An empty arena, capture 80 % of it. Just mind that something is in here with you. You will not see it — but you will see the holes it leaves behind.",
         reasonOvershoot: "Overshot! Your ground is gone.",
         reasonMinesLeft: "You did not set off ten mines in time!",
         gameCompleted: "You have finished the game!",
@@ -1050,6 +1050,12 @@ const timeHud = createHudItem('timer', UI.amber);
 const GENERATOR_HUD_COLOR = '#9d5bff';
 const generatorHud = createHudItem('core', GENERATOR_HUD_COLOR);
 generatorHud.wrap.style.display = 'none';
+// Aktuální procento a cíl jsou dva kusy textu, aby u challenge 67 mohla
+// růst jen ta hodnota před lomítkem.
+const percentCurrent = document.createElement('span');
+const percentTarget = document.createElement('span');
+percentHud.value.append(percentCurrent, percentTarget);
+
 // jen v challenge Minové pole — kolik min už vybuchlo
 const minesHud = createHudItem('mine', '#c6ff2e');
 minesHud.wrap.style.display = 'none';
@@ -1063,8 +1069,8 @@ function refreshChallengeHud() {
     const goal = currentChallenge ? currentChallenge.goal : null;
     minesHud.wrap.style.display = goal === 'mines' ? 'flex' : 'none';
     percentHud.wrap.style.display = goal === 'mines' ? 'none' : 'flex';
-    percentHud.value.style.fontSize = '';
-    percentHud.value.style.color = '';
+    percentCurrent.style.fontSize = '';
+    percentCurrent.style.color = '';
 }
 
 // HUD souboje: oba hráči vedle sebe v barvách svých dronů, mezi nimi čas.
@@ -1664,16 +1670,17 @@ function updateHUD() {
         hudSeconds = seconds;
     }
     if (filledPercentage !== hudPercent || targetPercentage !== hudTarget) {
-        percentHud.value.textContent = `${filledPercentage}% / ${targetPercentage}%`;
+        percentCurrent.textContent = `${filledPercentage}%`;
+        percentTarget.textContent = ` / ${targetPercentage}%`;
         hudPercent = filledPercentage;
         hudTarget = targetPercentage;
 
-        // Challenge 67: číslo roste, jak se hráč blíží cíli, a těsně
-        // před ním zežloutne — ať je napětí vidět i koutkem oka.
+        // Challenge 67: roste jen hodnota před lomítkem, a čím blíž je cíl,
+        // tím prudčeji — poslední procenta jsou tak vidět i koutkem oka.
         if (currentChallenge && currentChallenge.goal === 'exact') {
             const near = Math.min(filledPercentage / currentChallenge.exact, 1);
-            percentHud.value.style.fontSize = `${Math.round(PERCENT_FONT_BASE * (1 + near * 1.1))}px`;
-            percentHud.value.style.color = near > 0.9 ? CHALLENGE_COLOR : UI.text;
+            percentCurrent.style.fontSize = `${Math.round(PERCENT_FONT_BASE * (1 + Math.pow(near, 3) * 2.2))}px`;
+            percentCurrent.style.color = near > 0.9 ? CHALLENGE_COLOR : UI.text;
         }
     }
 
@@ -1740,8 +1747,8 @@ function quitToMenu() {
     camera.up.set(0, 1, 0);
     minesHud.wrap.style.display = 'none';
     percentHud.wrap.style.display = 'flex';
-    percentHud.value.style.fontSize = '';
-    percentHud.value.style.color = '';
+    percentCurrent.style.fontSize = '';
+    percentCurrent.style.color = '';
     winAnimationPlayer = null; 
     
     clearSceneEntities(); // Vymaže částice, nepřátele atd.
@@ -3954,13 +3961,18 @@ function startChallenge(id) {
         const spot = findEnemySpawn();
         enemies.push(new Bomber(spot.x, spot.z));
     }
-    // Neviditelný bouncer: prozradí ho jedině zvuk odrazu.
-    for (let i = 0; i < (challenge.invisibleBouncers || 0); i++) {
-        const spot = findEnemySpawn();
-        const ghost = new Bouncer(spot.x, spot.z);
-        ghost.mesh.visible = false;
-        enemies.push(ghost);
-    }
+    // Neviditelní nepřátelé: bouncera prozradí jen zvuk odrazu, eatera
+    // navíc i díry, které po sobě v zabrané ploše nechává.
+    const spawnGhost = (Kind, count) => {
+        for (let i = 0; i < (count || 0); i++) {
+            const spot = findEnemySpawn();
+            const ghost = new Kind(spot.x, spot.z);
+            ghost.mesh.visible = false;
+            enemies.push(ghost);
+        }
+    };
+    spawnGhost(Bouncer, challenge.invisibleBouncers);
+    spawnGhost(Eater, challenge.invisibleEaters);
 
     duelHud.style.display = 'none';
     hudContainer.style.display = 'flex';
