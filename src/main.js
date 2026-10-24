@@ -120,18 +120,18 @@ const CHALLENGE_COLOR = '#ffb020';
 const CHALLENGES = [
     {
         id: 'mines', goal: 'mines', minesNeeded: 10,
-        time: 150, bouncers: 3, eaters: 0, bombers: 0, maxMines: 5
+        time: 100, bouncers: 3, eaters: 2, bombers: 0, maxMines: 5
     },
     {
         id: 'sixtyseven', goal: 'exact', exact: 67,
-        time: 150, bouncers: 3, eaters: 0, bombers: 1, maxMines: 0
+        time: 150, bouncers: 0, eaters: 3, bombers: 1, maxMines: 0
     },
     {
         id: 'upside', goal: 'area', target: 80, flipped: true,
-        time: 160, bouncers: 2, eaters: 0, bombers: 0, maxMines: 0
+        time: 160, bouncers: 2, eaters: 1, bombers: 0, maxMines: 0
     },
     {
-        id: 'wtf', goal: 'area', target: 80, invisibleBouncers: 1,
+        id: 'wtf', goal: 'area', target: 80, invisibleBouncers: 2,
         time: 160, bouncers: 0, eaters: 0, bombers: 0, maxMines: 0
     }
 ];
@@ -185,6 +185,7 @@ const i18n = {
         bossNeedGenerators: "Umlč všechny čtyři generátory!",
         challenges: "Challenge",
         challengeDone: "Splněno!",
+        nextChallenge: "DALŠÍ CHALLENGE",
         chMinesName: "Minové pole",
         chMinesDesc: "Zaber kus plochy, nalákej miny a nech jich vybuchnout deset, než vyprší čas. Aréna ti to nijak neulehčí — poletují v ní tři bouncery.",
         chMinesCounter: "Miny",
@@ -285,6 +286,7 @@ const i18n = {
         bossNeedGenerators: "Silence all four generators!",
         challenges: "Challenge",
         challengeDone: "Done!",
+        nextChallenge: "NEXT CHALLENGE",
         chMinesName: "Minefield",
         chMinesDesc: "Capture some ground, lure the mines in and set off ten of them before time runs out. The arena will not make it easy — three bouncers are loose in it.",
         chMinesCounter: "Mines",
@@ -1623,19 +1625,21 @@ function openLevelSelect() {
     heading.textContent = t('challenges');
     levelGrid.appendChild(heading);
 
-    CHALLENGES.forEach((challenge) => {
-        const done = isChallengeDone(challenge.id);
+    // Dlaždice jsou stejně velké jako u levelů, jen oranžové a číslované —
+    // jméno challenge hráč stejně uvidí v úvodní animaci.
+    CHALLENGES.forEach((challenge, index) => {
         const box = document.createElement('div');
         Object.assign(box.style, {
-            gridColumn: 'span 2', height: `${Math.round(LEVEL_TILE * 0.5)}px`,
-            display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px',
-            border: `2px solid ${CHALLENGE_COLOR}`, color: CHALLENGE_COLOR, cursor: 'pointer',
-            fontFamily: UI.font, fontSize: `${isTouchDevice ? 15 : 24}px`,
-            letterSpacing: '1px', textTransform: 'uppercase', padding: '0 6px',
-            textAlign: 'center'
+            width: `${LEVEL_TILE}px`, height: `${LEVEL_TILE}px`,
+            display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
+            borderRadius: '0', border: `2px solid ${CHALLENGE_COLOR}`,
+            backgroundColor: 'transparent', cursor: 'pointer', color: CHALLENGE_COLOR
         });
-        box.innerHTML = `<span>${t(challengeKey(challenge, 'Name'))}</span>`
-            + (done ? `<span style="display:flex; color:inherit;">${pixelIcon('star', 'currentColor', isTouchDevice ? 1 : 2)}</span>` : '');
+
+        box.innerHTML = `<div style="font-family: ${UI.font}; font-size: ${isTouchDevice ? 26 : 42}px;">${index + 1}</div>`;
+        if (isChallengeDone(challenge.id)) {
+            box.innerHTML += `<div style="margin-top: ${isTouchDevice ? 3 : 8}px; display: flex; color: inherit;">${pixelIcon('star', 'currentColor', isTouchDevice ? 1 : 2)}</div>`;
+        }
 
         applyHoverFill(box, CHALLENGE_COLOR);
         box.onclick = () => { soundManager.playSFX('click'); openChallengeBriefing(challenge); };
@@ -1973,6 +1977,24 @@ function showResult(isWin, reasonKey = "") {
     const btnContainer = document.createElement('div');
     Object.assign(btnContainer.style, { marginTop: '40px', display: 'flex', gap: '20px' });
     
+    // Po splněné challenge nabídneme rovnou tu následující, pokud nějaká je.
+    if (isWin && currentChallenge) {
+        const index = CHALLENGES.indexOf(currentChallenge);
+        const next = CHALLENGES[index + 1];
+        if (next) {
+            const nextBtn = document.createElement('button');
+            nextBtn.innerText = t('nextChallenge');
+            Object.assign(nextBtn.style, {
+                fontFamily: UI.font, padding: '14px 22px', fontSize: '22px', cursor: 'pointer',
+                backgroundColor: 'transparent', color: CHALLENGE_COLOR,
+                border: `2px solid ${CHALLENGE_COLOR}`, borderRadius: '0'
+            });
+            applyHoverFill(nextBtn, CHALLENGE_COLOR);
+            nextBtn.onclick = () => { soundManager.playSFX('click'); openChallengeBriefing(next); };
+            btnContainer.appendChild(nextBtn);
+        }
+    }
+
     if (isWin && !currentChallenge && currentLevelId < TOTAL_LEVEL_COUNT) {
         const nextBtn = document.createElement('button');
         nextBtn.innerText = t('nextLevel');
