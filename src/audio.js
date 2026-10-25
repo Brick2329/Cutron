@@ -190,7 +190,7 @@ class AudioEngine {
         if (this.sequencer && this.sequencer.mode === 'game') return;
         this.stopSequencer();
         this.stopDrone();
-        this.startSequencer('game', 60 / 104 / 4);
+        this.startSequencer('game', 60 / 112 / 4);
     }
 
     // Boss level má vlastní, temnější podklad: pomalejší tempo, hluboký
@@ -295,12 +295,15 @@ class AudioEngine {
     }
 
     playStep(step, time) {
+        // Challenge: čtyři kopáky na takt, tlesk na druhou a čtvrtou dobu,
+        // hi-hat přesně mezi kopáky. Dřív seděl na lichých šestnáctinách,
+        // takže se o šestnáctinu předbíhal a rytmus klopýtal.
         if (this.sequencer.mode === 'challenge') {
             if (step % 4 === 0) this.playKick(time, 135, 0.12);
-            if (step % 2 === 1) this.playHat(time);
-            if (step === 6 || step === 14) this.playClap(time);
+            if (step % 4 === 2) this.playHat(time);
+            if (step === 4 || step === 12) this.playClap(time);
             const arp = [110, 164.81, 220, 164.81, 130.81, 196, 261.63, 196];
-            if (step % 2 === 0) this.playBass(arp[(step / 2) % arp.length], time, 0.13);
+            if (step % 2 === 0) this.playBass(arp[(step / 2) % arp.length], time, 0.13, 1100);
             return;
         }
 
@@ -313,11 +316,15 @@ class AudioEngine {
             return;
         }
 
-        if (step % 8 === 0) this.playKick(time);
+        // Kampaň: dřív jen dva kopáky a tři hluboké tóny, což znělo spíš
+        // jako podmalování než hudba. Teď má tlesk na druhou a čtvrtou dobu,
+        // průběžný hi-hat a basu o oktávu výš, aby z ní byl slyšet rytmus.
+        if (step === 0 || step === 8 || step === 11) this.playKick(time, 115, 0.15);
+        if (step === 4 || step === 12) this.playClap(time);
         if (step % 4 === 2) this.playHat(time);
-        if (step === 0 || step === 6 || step === 10) {
-            this.playBass(step === 0 ? 55 : step === 6 ? 62 : 49, time);
-        }
+
+        const line = { 0: 110, 3: 110, 6: 146.83, 8: 98, 11: 98, 14: 130.81 };
+        if (line[step]) this.playBass(line[step], time, 0.2, 1000);
     }
 
     // krátké plesknutí do rytmu challenge
@@ -380,14 +387,14 @@ class AudioEngine {
         source.stop(time + 0.06);
     }
 
-    playBass(frequency, time, length = 0.22) {
+    playBass(frequency, time, length = 0.22, cutoff = 700) {
         const osc = this.ctx.createOscillator();
         const filter = this.ctx.createBiquadFilter();
         const gain = this.ctx.createGain();
         osc.type = 'square';
         osc.frequency.value = frequency;
         filter.type = 'lowpass';
-        filter.frequency.value = 700;
+        filter.frequency.value = cutoff;
         gain.gain.setValueAtTime(0.18, time);
         gain.gain.exponentialRampToValueAtTime(0.001, time + length);
         osc.connect(filter).connect(gain).connect(this.musicGain);

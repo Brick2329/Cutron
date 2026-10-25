@@ -119,20 +119,20 @@ const isBossUnlocked = () => progress.unlocked > LEVELS_CONFIG.length;
 const CHALLENGE_COLOR = '#ffb020';
 const CHALLENGES = [
     {
-        id: 'mines', goal: 'mines', minesNeeded: 15,
+        id: 'mines', goal: 'mines', minesNeeded: 20,
         time: 100, bouncers: 3, eaters: 2, bombers: 0, maxMines: 5
     },
     {
         id: 'sixtyseven', goal: 'exact', exact: 67,
-        time: 100, bouncers: 0, eaters: 3, bombers: 1, maxMines: 0
+        time: 100, bouncers: 0, eaters: 4, bombers: 1, maxMines: 0
     },
     {
         id: 'upside', goal: 'area', target: 80, flipped: true,
-        time: 100, bouncers: 2, eaters: 1, bombers: 0, maxMines: 0
+        time: 100, bouncers: 3, eaters: 1, bombers: 0, maxMines: 0
     },
     {
-        id: 'wtf', goal: 'area', target: 80, invisibleEaters: 2,
-        time: 160, bouncers: 0, eaters: 0, bombers: 0, maxMines: 0
+        id: 'wtf', goal: 'area', target: 80, invisibleEaters: 3,
+        time: 100, bouncers: 0, eaters: 0, bombers: 0, maxMines: 0
     }
 ];
 const challengeById = (id) => CHALLENGES.find((c) => c.id === id) || null;
@@ -187,10 +187,10 @@ const i18n = {
         challengeDone: "Splněno!",
         nextChallenge: "DALŠÍ CHALLENGE",
         chMinesName: "Minové pole",
-        chMinesDesc: "Zaber kus plochy, nalákej miny a nech jich vybuchnout patnáct, než vyprší čas. Aréna ti to nijak neulehčí — létají v ní tři bouncery a dva eateři, kteří ti zabranou plochu ukusují i s místy, kde se miny líhnou.",
+        chMinesDesc: "Zaber kus plochy, nalákej miny a nech jich vybuchnout dvacet, než vyprší čas. Aréna ti to nijak neulehčí — létají v ní tři bouncery a dva eateři, kteří ti zabranou plochu ukusují i s místy, kde se miny líhnou.",
         chMinesCounter: "Miny",
         chSixtysevenName: "67",
-        chSixtysevenDesc: "Zaber přesně 67 % plochy. Ani o procento míň, ani o procento víc. Překročení tě bude stát život a celé zabrané území přijdeš. Pomáhat ti nebudou tři eateři, kteří ti plochu ukusují, ani bomber.",
+        chSixtysevenDesc: "Zaber přesně 67 % plochy. Ani o procento míň, ani o procento víc. Překročení tě bude stát život a celé zabrané území přijdeš. Pomáhat ti nebudou čtyři eateři, kteří ti plochu ukusují, ani bomber.",
         chUpsideName: "Vzhůru nohama",
         chUpsideDesc: "Celá aréna je vzhůru nohama, takže doleva je doprava a nahoru je dolů. Zaber 80 % plochy, jestli to ještě zvládneš.",
         chWtfName: "WTF",
@@ -288,10 +288,10 @@ const i18n = {
         challengeDone: "Done!",
         nextChallenge: "NEXT CHALLENGE",
         chMinesName: "Minefield",
-        chMinesDesc: "Capture some ground, lure the mines in and set off fifteen of them before time runs out. The arena will not make it easy — three bouncers and two eaters are loose in it, and the eaters chew away the very ground the mines need.",
+        chMinesDesc: "Capture some ground, lure the mines in and set off twenty of them before time runs out. The arena will not make it easy — three bouncers and two eaters are loose in it, and the eaters chew away the very ground the mines need.",
         chMinesCounter: "Mines",
         chSixtysevenName: "67",
-        chSixtysevenDesc: "Capture exactly 67 % of the arena. Not one percent less, not one more. Overshoot and it costs you a life and every bit of ground you took. Three eaters chewing your ground away and a bomber are no help either.",
+        chSixtysevenDesc: "Capture exactly 67 % of the arena. Not one percent less, not one more. Overshoot and it costs you a life and every bit of ground you took. Four eaters chewing your ground away and a bomber are no help either.",
         chUpsideName: "Upside down",
         chUpsideDesc: "The whole arena is upside down, so left is right and up is down. Capture 80 % of it, if you still can.",
         chWtfName: "WTF",
@@ -1064,6 +1064,7 @@ hudContainer.append(livesHud.wrap, percentHud.wrap, timeHud.wrap, generatorHud.w
 // Challenge si HUD přizpůsobí: minové pole potřebuje počítadlo min místo
 // procent, u 67 naopak procenta rostou, jak se hráč blíží cíli.
 const PERCENT_FONT_BASE = isTouchDevice ? 18 : 26;
+const PERCENT_FONT_MAX = isTouchDevice ? 54 : 110;
 
 function refreshChallengeHud() {
     const goal = currentChallenge ? currentChallenge.goal : null;
@@ -1562,12 +1563,29 @@ function updateAllTexts() {
     
 }
 
+// Nadpis oddílu ve výběru levelů. Kampaň i challenge ho mají úplně stejný,
+// liší se jen barvou — dřív měl každý kus menu vlastní velikost i styl.
+function createSectionLabel(text, color, first = false) {
+    const label = document.createElement('div');
+    Object.assign(label.style, {
+        gridColumn: '1 / -1', textAlign: 'center',
+        marginTop: first ? '0' : (isTouchDevice ? '14px' : '22px'),
+        marginBottom: isTouchDevice ? '2px' : '4px',
+        fontFamily: UI.font, fontSize: `${isTouchDevice ? 16 : 22}px`,
+        color, letterSpacing: '6px', textTransform: 'uppercase'
+    });
+    label.textContent = text;
+    return label;
+}
+
 function openLevelSelect() {
     setTimeout(() => uiWarp.refresh(), 0);
     menuUI.style.display = 'none';
     levelSelectUI.style.display = 'flex';
     levelGrid.innerHTML = '';
-    
+
+    levelGrid.appendChild(createSectionLabel(t('campaign'), UI.cyan, true));
+
     LEVELS_CONFIG.forEach(config => {
         const isUnlocked = config.id <= progress.unlocked;
         const box = document.createElement('div');
@@ -1596,17 +1614,18 @@ function openLevelSelect() {
         levelGrid.appendChild(box);
     });
 
-    // Boss level dostane vlastní pruh přes celou šířku — není to devátý
-    // level v řadě, ale finále kampaně.
+    // Boss level je finále kampaně, takže zůstává v jejím oddílu — jen přes
+    // celou šířku a červeně. Písmo má stejně velké jako čísla levelů.
     const bossUnlocked = isBossUnlocked();
     const bossBox = document.createElement('div');
     Object.assign(bossBox.style, {
         gridColumn: '1 / -1', height: `${Math.round(LEVEL_TILE * 0.55)}px`,
+        marginTop: isTouchDevice ? '0' : '2px',
         display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px',
         border: `2px solid ${bossUnlocked ? UI.danger : '#2b3a4a'}`,
         color: bossUnlocked ? UI.danger : UI.dim,
         cursor: bossUnlocked ? 'pointer' : 'not-allowed',
-        fontFamily: UI.font, fontSize: `${isTouchDevice ? 22 : 32}px`,
+        fontFamily: UI.font, fontSize: `${isTouchDevice ? 26 : 42}px`,
         letterSpacing: '3px', textTransform: 'uppercase'
     });
     bossBox.innerHTML = `<span>${t('bossLevel')}</span>`
@@ -1621,15 +1640,7 @@ function openLevelSelect() {
     // --- CHALLENGE ---
     // Vlastní oddíl pod kampaní, odlišený oranžovou. Nic se neodemyká,
     // za splnění přibude jen hvězda.
-    const heading = document.createElement('div');
-    Object.assign(heading.style, {
-        gridColumn: '1 / -1', marginTop: isTouchDevice ? '10px' : '18px',
-        fontFamily: UI.font, fontSize: `${isTouchDevice ? 18 : 26}px`,
-        color: CHALLENGE_COLOR, letterSpacing: '4px', textTransform: 'uppercase',
-        textAlign: 'center'
-    });
-    heading.textContent = t('challenges');
-    levelGrid.appendChild(heading);
+    levelGrid.appendChild(createSectionLabel(t('challenges'), CHALLENGE_COLOR));
 
     // Dlaždice jsou stejně velké jako u levelů, jen oranžové a číslované —
     // jméno challenge hráč stejně uvidí v úvodní animaci.
@@ -1679,7 +1690,8 @@ function updateHUD() {
         // tím prudčeji — poslední procenta jsou tak vidět i koutkem oka.
         if (currentChallenge && currentChallenge.goal === 'exact') {
             const near = Math.min(filledPercentage / currentChallenge.exact, 1);
-            percentCurrent.style.fontSize = `${Math.round(PERCENT_FONT_BASE * (1 + Math.pow(near, 3) * 2.2))}px`;
+            const grown = PERCENT_FONT_BASE * (1 + Math.pow(near, 3) * 3.6);
+            percentCurrent.style.fontSize = `${Math.round(Math.min(grown, PERCENT_FONT_MAX))}px`;
             percentCurrent.style.color = near > 0.9 ? CHALLENGE_COLOR : UI.text;
         }
     }
@@ -2710,6 +2722,9 @@ function createHourglassGeometry() {
 
 const PICKUP_RING_GEOMETRY = new THREE.RingGeometry(CELL_SIZE * 1.7, CELL_SIZE * 2.4, 8);
 const TIME_BONUS_SECONDS = 10;
+// Dosah na sebrání. O kus větší než poloměr samotného tělesa, aby se
+// předmět dal vzít i při rychlém průletu kolem.
+const PICKUP_REACH = CELL_SIZE * 3;
 const MAX_LIVES = 5;
 
 const crossGeometry = createCrossGeometry();
@@ -2828,7 +2843,7 @@ class Pickup {
             if (target.isRespawning || !this.config.canTake(target)) continue;
             const dx = target.group.position.x - this.mesh.position.x;
             const dz = target.group.position.z - this.mesh.position.z;
-            if (Math.hypot(dx, dz) < CELL_SIZE * 2.4) {
+            if (Math.hypot(dx, dz) < PICKUP_REACH) {
                 this.config.take(target);
                 soundManager.playSFX('pickup');
                 createExplosion(this.mesh.position.x, this.mesh.position.y, this.mesh.position.z, 24, this.config.sparks);
